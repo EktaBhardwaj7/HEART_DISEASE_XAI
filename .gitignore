@@ -22,3 +22,7 @@ catboost_info/
 
 # Logs & temp
 *.log
+
+# Large model files
+*.pkl
+*.joblib

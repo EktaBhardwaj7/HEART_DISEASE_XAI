@@ -1,4 +1,5 @@
 import streamlit as st
+import zipfile
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -430,60 +431,109 @@ COUNTRY_DATA = {
     }
 }
 
-# ==================== LOAD MODEL ====================
+import requests
+import os
+
 @st.cache_resource
 def load_model():
-    """Load the trained model"""
-    try:
-        model_paths = [
-            'models/Extreme_Random_Forest.pkl'
-        ]
+    """Load the trained model from Google Drive"""
+    try: 
+        FILE_ID ="1RjZAtSzPelVfwO6EqZJpW0x0tlisu44m"
+        MODEL_URL = f"https://drive.google.com/uc?export=download&id={FILE_ID}"
         
-        for model_path in model_paths:
-            if os.path.exists(model_path):
-                try:
-                    model = joblib.load(model_path)
-                    st.success(f"✅ Model loaded successfully")
-                    
-                    features = [
-                        'age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg',
-                        'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal'
-                    ]
-                    
-                    return model, True, features
-                except:
-                    continue
+        model_path = 'models/heart_model.pkl'
         
-        # Fallback model
-        from sklearn.ensemble import RandomForestClassifier
-        import numpy as np
+        # Create models folder
+        os.makedirs('models', exist_ok=True)
         
-        np.random.seed(42)
-        X = np.random.randn(100, 13)
-        y = np.random.randint(0, 2, 100)
-        
-        model = RandomForestClassifier(n_estimators=10, random_state=42)
-        model.fit(X, y)
-        
+        # Download if file doesn't exist
+        if not os.path.exists(model_path):
+            st.info("📥 Downloading AI model from Google Drive...")
+            
+            import requests
+            import re
+            
+            # Create session
+            session = requests.Session()
+            
+            # First request to get cookies
+            response = session.get(MODEL_URL, stream=True)
+            
+            # Check if we got the virus scan warning page
+            if 'text/html' in response.headers.get('Content-Type', ''):
+                # Extract confirm token from HTML
+                content = response.text
+                confirm_token_match = re.search(r'confirm=([0-9A-Za-z_]+)', content)
+                
+                if confirm_token_match:
+                    confirm_token = confirm_token_match.group(1)
+                    MODEL_URL = f"https://drive.google.com/uc?export=download&id={FILE_ID}&confirm={confirm_token}"
+                    response = session.get(MODEL_URL, stream=True)
+            # Get total size
+            total_size = int(response.headers.get('content-length', 0))
+            # Download with progress
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            with open(model_path, 'wb') as f:
+                downloaded = 0
+                chunk_size = 32768  
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        # Update progress
+                        if total_size > 0:
+                            progress = downloaded / total_size
+                            progress_bar.progress(min(progress, 1.0))
+                            if int(progress * 100) % 5 == 0:
+                                mb_downloaded = downloaded / 1024 / 1024
+                                mb_total = total_size / 1024 / 1024
+                                status_text.text(f"⏳ Downloaded: {mb_downloaded:.1f} MB / {mb_total:.1f} MB")
+            progress_bar.empty()
+            status_text.empty()
+            st.success("✅ Model downloaded successfully!")
+        # Load the model
+        model = joblib.load(model_path)
+        st.success("✅ Model loaded!")
         features = [
             'age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg',
             'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal'
         ]
-        
         return model, True, features
-        
     except Exception as e:
-        st.error(f"❌ Error loading model: {str(e)}")
-        return None, False, []
-
+        st.error(f" Error loading model: {str(e)}")
+        import traceback
+        st.error(f"Details: {traceback.format_exc()}")
+        # Fallback to simple model
+        st.warning("⚠️ Using fallback model for demonstration")
+        return create_fallback_model()
+def create_fallback_model():
+    """Create simple fallback model"""
+    from sklearn.ensemble import RandomForestClassifier
+    import numpy as np
+    np.random.seed(42)
+    X = np.random.randn(500, 13)
+    y = np.random.randint(0, 2, 500)
+    
+    model = RandomForestClassifier(
+        n_estimators=50,
+        max_depth=10,
+        random_state=42
+    )
+    model.fit(X, y)
+    
+    features = [
+        'age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg',
+        'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal'
+    ]
+    return model, False, features
 # Load model
 if st.session_state.model is None:
-    with st.spinner("Loading AI model..."):
+    with st.spinner("🚀 Initializing HeartGuard AI..."):
         model, loaded, features = load_model()
         st.session_state.model = model
         st.session_state.model_loaded = loaded
         st.session_state.model_features = features
-
 # ==================== AUTHENTICATION ====================
 def create_users():
     """Create default users"""
