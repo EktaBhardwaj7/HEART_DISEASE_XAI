@@ -20,9 +20,5 @@ Thumbs.db
 # CatBoost
 catboost_info/
 
-# Large model files
-*.pkl
-*.joblib
-
 # Logs & temp
 *.log
