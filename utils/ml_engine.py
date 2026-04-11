@@ -2,6 +2,7 @@
 CardioVue AI — ML Prediction Engine
 Loads real trained models from model_training.py output.
 Falls back to calibrated weighted scoring when .pkl files aren't present.
+Supports downloading models from Google Drive URLs.
 """
 
 import os
@@ -10,6 +11,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from datetime import datetime
+import requests
+import gdown
+import zipfile
+import tempfile
+import shutil
 
 # ─── FEATURE SCHEMA (matches model_training.py exactly) ───────────────────────
 # These are the base features + engineered features created in load_and_enhance_data()
@@ -48,6 +54,269 @@ FEATURE_DISPLAY = {
     'Metabolic_Score': 'Metabolic Score',
 }
 
+# Google Drive file IDs for models (configure these)
+# You can get the file ID from the Google Drive share link
+# Example: https://drive.google.com/file/d/FILE_ID/view
+GOOGLE_DRIVE_MODELS = {
+    'Extreme_Random_Forest.pkl': {
+        'file_id': "1RjZAtSzPelVfwO6EqZJpW0x0tlisu44m",
+        'url': None,
+        'description': 'Extreme Random Forest Model (F1=95.79%, ROC-AUC=98.81%)'
+    },
+    'Stacking_Ensemble.pkl': {
+        'file_id': None,
+        'url': None,
+        'description': 'Stacking Ensemble Model (F1=96.0%)'
+    },
+    'XGBoost.pkl': {
+        'file_id': None,
+        'url': None,
+        'description': 'XGBoost Model (F1=91.64%)'
+    },
+    'CatBoost.pkl': {
+        'file_id': None,
+        'url': None,
+        'description': 'CatBoost Model (F1=91.81%)'
+    },
+    'Neural_Network.pkl': {
+        'file_id': None,
+        'url': None,
+        'description': 'Neural Network Model (F1=94.13%)'
+    },
+    'scaler.pkl': {
+        'file_id': None,
+        'url': None,
+        'description': 'Feature Scaler'
+    }
+}
+
+# ─── GOOGLE DRIVE DOWNLOAD FUNCTIONS ───────────────────────────────────────────
+
+def download_from_google_drive(file_id: str, output_path: str) -> bool:
+    """
+    Download a file from Google Drive using file ID.
+    Requires gdown package.
+    """
+    try:
+        url = f"https://drive.google.com/uc?id={file_id}"
+        gdown.download(url, output_path, quiet=False)
+        return os.path.exists(output_path)
+    except Exception as e:
+        st.error(f"Failed to download from Google Drive: {e}")
+        return False
+
+def download_from_url(url: str, output_path: str) -> bool:
+    """
+    Download a file from a direct URL.
+    """
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        with open(output_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        return os.path.exists(output_path)
+    except Exception as e:
+        st.error(f"Failed to download from URL: {e}")
+        return False
+
+def download_models_from_drive(model_dir: str, drive_urls: dict = None) -> dict:
+    """
+    Download model files from Google Drive or URLs.
+    
+    Args:
+        model_dir: Directory to save downloaded models
+        drive_urls: Dictionary mapping filenames to URLs or file IDs
+    
+    Returns:
+        Dictionary of downloaded files and their status
+    """
+    os.makedirs(model_dir, exist_ok=True)
+    
+    # Use provided URLs or default ones
+    urls_to_download = drive_urls or GOOGLE_DRIVE_MODELS
+    
+    downloaded = {}
+    
+    for filename, config in urls_to_download.items():
+        output_path = os.path.join(model_dir, filename)
+        
+        # Skip if file already exists
+        if os.path.exists(output_path):
+            downloaded[filename] = {'status': 'exists', 'path': output_path}
+            continue
+        
+        # Try to download from URL or file_id
+        if config.get('url'):
+            st.info(f"Downloading {filename} from URL...")
+            success = download_from_url(config['url'], output_path)
+            downloaded[filename] = {'status': 'downloaded' if success else 'failed', 'path': output_path if success else None}
+            
+        elif config.get('file_id'):
+            st.info(f"Downloading {filename} from Google Drive...")
+            success = download_from_google_drive(config['file_id'], output_path)
+            downloaded[filename] = {'status': 'downloaded' if success else 'failed', 'path': output_path if success else None}
+        else:
+            downloaded[filename] = {'status': 'skipped', 'path': None}
+    
+    return downloaded
+
+def download_zip_from_drive(zip_url: str, extract_to: str) -> bool:
+    """
+    Download a zip file from Google Drive and extract it.
+    
+    Args:
+        zip_url: URL to the zip file or Google Drive file ID
+        extract_to: Directory to extract files to
+    """
+    try:
+        os.makedirs(extract_to, exist_ok=True)
+        
+        # Create a temporary file for the zip
+        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+        
+        # Download the zip file
+        if 'drive.google.com' in zip_url:
+            # Extract file ID from Google Drive URL
+            import re
+            match = re.search(r'/d/([a-zA-Z0-_-]+)', zip_url)
+            if match:
+                file_id = match.group(1)
+                download_from_google_drive(file_id, tmp_path)
+            else:
+                download_from_url(zip_url, tmp_path)
+        else:
+            download_from_url(zip_url, tmp_path)
+        
+        # Extract the zip file
+        with zipfile.ZipFile(tmp_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_to)
+        
+        # Clean up temp file
+        os.unlink(tmp_path)
+        
+        return True
+    except Exception as e:
+        st.error(f"Failed to download and extract zip: {e}")
+        return False
+
+# ─── MODEL LOADER UI ───────────────────────────────────────────────────────────
+
+def render_model_download_ui():
+    """
+    Render UI for downloading models from Google Drive.
+    Call this in the sidebar or settings page.
+    """
+    with st.expander("📥 Download ML Models from Drive", expanded=False):
+        st.markdown("""
+        **Download pre-trained models from Google Drive**
+        
+        Enter Google Drive URLs or File IDs to download model files.
+        """)
+        
+        # Option to download individual files
+        st.markdown("#### Individual Model Files")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            model_select = st.selectbox(
+                "Select Model",
+                list(GOOGLE_DRIVE_MODELS.keys()),
+                help="Choose which model to download"
+            )
+        
+        with col2:
+            download_method = st.radio(
+                "Download Method",
+                ["File ID", "Direct URL"],
+                horizontal=True
+            )
+        
+        if download_method == "File ID":
+            file_id = st.text_input(
+                "Google Drive File ID",
+                placeholder="1ABC123def456...",
+                help="The ID from the shareable link: https://drive.google.com/file/d/FILE_ID/view"
+            )
+        else:
+            direct_url = st.text_input(
+                "Direct Download URL",
+                placeholder="https://...",
+                help="Direct link to the .pkl file"
+            )
+        
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col1:
+            if st.button("📥 Download Selected Model", type="primary", use_container_width=True):
+                model_dir = os.environ.get("CARDIOVUE_MODELS", "models")
+                os.makedirs(model_dir, exist_ok=True)
+                
+                output_path = os.path.join(model_dir, model_select)
+                
+                if download_method == "File ID" and file_id:
+                    success = download_from_google_drive(file_id, output_path)
+                elif download_method == "Direct URL" and direct_url:
+                    success = download_from_url(direct_url, output_path)
+                else:
+                    st.error("Please provide a File ID or URL")
+                    success = False
+                
+                if success:
+                    st.success(f"✅ Successfully downloaded {model_select}")
+                    st.cache_resource.clear()
+                    st.rerun()
+                else:
+                    st.error(f"Failed to download {model_select}")
+        
+        with col2:
+            # Option to download all models from a zip
+            st.markdown("#### 📦 Download All Models (Zip)")
+            zip_url = st.text_input(
+                "Google Drive Zip URL",
+                placeholder="https://drive.google.com/file/d/FILE_ID/view",
+                help="Link to a zip file containing all models"
+            )
+            
+            if st.button("📦 Download & Extract All", use_container_width=True):
+                if zip_url:
+                    model_dir = os.environ.get("CARDIOVUE_MODELS", "models")
+                    if download_zip_from_drive(zip_url, model_dir):
+                        st.success("✅ Successfully downloaded and extracted all models")
+                        st.cache_resource.clear()
+                        st.rerun()
+                    else:
+                        st.error("Failed to download models")
+                else:
+                    st.warning("Please provide a zip file URL")
+        
+        with col3:
+            st.markdown("#### 🔗 How to get File ID")
+            st.markdown("""
+            1. Share the file from Google Drive
+            2. Copy the shareable link
+            3. Extract the ID: `https://drive.google.com/file/d/`**`FILE_ID`**`/view`
+            """)
+        
+        st.divider()
+        
+        # Show current models
+        st.markdown("#### 📁 Current Models")
+        model_dir = os.environ.get("CARDIOVUE_MODELS", "models")
+        
+        if os.path.exists(model_dir):
+            model_files = [f for f in os.listdir(model_dir) if f.endswith('.pkl')]
+            if model_files:
+                for f in model_files:
+                    fpath = os.path.join(model_dir, f)
+                    fsize = os.path.getsize(fpath) / (1024 * 1024)  # MB
+                    st.markdown(f"✅ `{f}` ({fsize:.2f} MB)")
+            else:
+                st.info("No model files found. Download some using the options above.")
+        else:
+            st.info("Models directory not created yet. Download a model to create it.")
 
 # ─── MODEL LOADER ──────────────────────────────────────────────────────────────
 
@@ -55,19 +324,24 @@ FEATURE_DISPLAY = {
 def load_ml_models():
     """
     Load the best available trained model from the models/ directory.
-
-    Priority order (highest performance first):
-      1. Extreme_Random_Forest.pkl  — F1=95.79%, ROC-AUC=98.81%  (BalancedRandomForest)
-      2. Stacking_Ensemble.pkl      — F1=96.0%  (ensemble)
-      3. XGBoost.pkl                — F1=91.64%
-      4. CatBoost.pkl               — F1=91.81%
-      5. Neural_Network.pkl         — F1=94.13%
-
-    The scaler is optional for tree-based models (they don't require scaling).
-    SHAP TreeExplainer is used when possible; falls back to simulated SHAP otherwise.
+    Also checks for models in Google Drive if configured.
     """
     model_dir = os.environ.get("CARDIOVUE_MODELS", "models")
     import joblib
+
+    # First, check if we should auto-download missing models
+    auto_download = os.environ.get("CARDIOVUE_AUTO_DOWNLOAD", "false").lower() == "true"
+    
+    if auto_download:
+        # Check if any models are missing and try to download
+        missing_models = []
+        for fname in ['Extreme_Random_Forest.pkl', 'scaler.pkl']:
+            if not os.path.exists(os.path.join(model_dir, fname)):
+                missing_models.append(fname)
+        
+        if missing_models and any(GOOGLE_DRIVE_MODELS.get(m, {}).get('file_id') for m in missing_models):
+            st.info(f"Auto-downloading missing models: {missing_models}")
+            download_models_from_drive(model_dir)
 
     # ── Candidate models in priority order ──────────────────────────────────
     candidates = [
