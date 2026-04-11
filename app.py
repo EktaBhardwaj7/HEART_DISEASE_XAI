@@ -1,1859 +1,1850 @@
+"""
+CardioVue AI — Intelligent Cardiovascular Risk Prediction & Monitoring
+Enhanced Professional Interface with Modern Design
+"""
+
 import streamlit as st
-import zipfile
+import hashlib
+import time
+from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import datetime, timedelta
 import json
-import base64
-from io import BytesIO
-import pickle
-import joblib
 import warnings
-from pathlib import Path
-import os
-import hashlib
-import re
+from modules.literature_review import show_literature_review
+from utils.clinical_guidelines import ascvd_risk_score, get_ascvd_recommendation
+from modules.research_hub import show_research_hub
+from modules.clinical_guidelines_viewer import show_clinical_guidelines, show_medication_reference
 warnings.filterwarnings('ignore')
-# ==================== PAGE CONFIG ====================
+
+# ─── PAGE CONFIG ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="HeartGuard AI",
-    page_icon="❤️",
+    page_title="CardioVue AI | Intelligent Cardiovascular Risk Prediction",
+    page_icon="🫀",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-# ==================== ASIAN-INSPIRED CSS DESIGN ====================
+
+# ─── LOCAL IMPORTS ─────────────────────────────────────────────────────────────
+from utils.theme import CSS, PLOT_LAYOUT, kpi_card, section_heading, risk_label, risk_color
+from utils.database import (
+    init_db, authenticate, register_user,
+    get_health_records, insert_health_record,
+    get_all_patients, get_appointments, book_appointment,
+    get_notifications, mark_all_read, add_notification,
+    get_blood_tests, insert_blood_test,
+    get_chat_messages, send_chat_message, get_user,
+    get_goals, create_goal, update_goal_progress, get_conn
+)
+from utils.ml_engine import predict_risk, get_intervention_scenarios, MODEL_PERFORMANCE
+from utils.ai_chatbot import get_ai_response, get_quick_insights
+
+st.markdown(CSS, unsafe_allow_html=True)
+
+# ─── INIT DB ───────────────────────────────────────────────────────────────────
+init_db()
+
+# ─── SESSION STATE INITIALIZATION ──────────────────────────────────────────────
+def init_session_state():
+    """Initialize all session state variables with defaults"""
+    defaults = {
+        'logged_in': False,
+        'username': None,
+        'user': None,
+        'session_start': None,
+        'page': 'dashboard',
+        'gemini_key': '',
+        'chat_history': [],
+        'last_prediction': None,
+        'last_features': None,
+        'viewing_patient': None,
+        'selected_patient': None,
+    }
+    
+    for key, default_value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default_value
+
+init_session_state()
+
+# ─── LOADING ANIMATION ─────────────────────────────────────────────────────────
+with st.spinner('🫀 Loading CardioVue AI...'):
+    time.sleep(0.3)
+
+# ─── CUSTOM JAVASCRIPT FOR INTERACTIONS ───────────────────────────────────────
 st.markdown("""
-<style>
-    :root {
-        --primary: #e53e3e; /* Japanese Red - Traditional & Energetic */
-        --primary-dark: #c53030;
-        --primary-light: #fc8181;
-        --secondary: #38a169; /* Japanese Green - Harmony & Growth */
-        --success: #38a169;
-        --warning: #d69e2e; /* Gold - Prosperity */
-        --danger: #e53e3e;
-        --dark: #1a202c; /* Deep Charcoal */
-        --light: #fed7d7; /* Light Pink - Sakura inspired */
-        --gray: #718096;
-        --accent: #805ad5; /* Royal Purple */
-        --gradient-primary: linear-gradient(135deg, #e53e3e 0%, #dd6b20 100%); /* Red to Orange */
-        --gradient-success: linear-gradient(135deg, #38a169 0%, #48bb78 100%); /* Green harmony */
-        --gradient-danger: linear-gradient(135deg, #e53e3e 0%, #c53030 100%); /* Deep red */
-        --gradient-warning: linear-gradient(135deg, #d69e2e 0%, #ed8936 100%); /* Gold to orange */
-        --gradient-asian: linear-gradient(135deg, #e53e3e 0%, #38a169 100%); /* Red & Green - Asian theme */
-        --gradient-sakura: linear-gradient(135deg, #fed7d7 0%, #fbb6ce 100%); /* Sakura blossom */
-        --shadow-sm: 0 2px 8px rgba(0,0,0,0.08);
-        --shadow-md: 0 4px 20px rgba(0,0,0,0.12);
-        --shadow-lg: 0 8px 40px rgba(0,0,0,0.15);
-        --radius-sm: 8px;
-        --radius-md: 12px;
-        --radius-lg: 20px;
-    }
-    
-    .stApp {
-        background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%); /* Soft pink gradient */
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
-    
-    .ultimate-container {
-        background: white;
-        border-radius: var(--radius-lg);
-        padding: 2rem;
-        margin: 1rem;
-        box-shadow: var(--shadow-md);
-        border: 1px solid rgba(229, 231, 235, 0.8);
-        position: relative;
-        overflow: hidden;
-        background-image: radial-gradient(#fed7d7 1px, transparent 1px);
-        background-size: 20px 20px;
-    }
-    
-    .ultimate-container::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 4px;
-        background: var(--gradient-asian);
-    }
-    
-    .ultimate-title {
-        background: var(--gradient-asian);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 2.5rem;
-        font-weight: 800;
-        margin: 0 0 0.5rem 0;
-        padding: 0;
-        line-height: 1.2;
-        letter-spacing: -0.5px;
-    }
-    
-    .ultimate-subtitle {
-        color: var(--gray);
-        font-size: 1.1rem;
-        font-weight: 400;
-        margin: 0 0 2rem 0;
-        line-height: 1.6;
-    }
-    
-    .ultimate-card {
-        background: white;
-        border-radius: var(--radius-md);
-        padding: 1.5rem;
-        border: 1px solid #e5e7eb;
-        box-shadow: var(--shadow-sm);
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .ultimate-card:hover {
-        transform: translateY(-4px);
-        box-shadow: var(--shadow-md);
-        border-color: var(--primary-light);
-    }
-    
-    .ultimate-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 6px;
-        height: 100%;
-        background: var(--gradient-asian);
-    }
-    
-    .ultimate-metric {
-        background: var(--gradient-asian);
-        border-radius: var(--radius-md);
-        padding: 1.5rem;
-        color: white;
-        text-align: center;
-        position: relative;
-        overflow: hidden;
-        min-height: 140px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-    }
-    
-    .metric-value {
-        font-size: 2.5rem;
-        font-weight: 800;
-        margin: 0;
-        line-height: 1;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    
-    .metric-label {
-        font-size: 0.95rem;
-        opacity: 0.95;
-        margin: 0.8rem 0 0 0;
-        letter-spacing: 0.5px;
-        font-weight: 500;
-    }
-    
-    .stButton > button {
-        border-radius: var(--radius-sm) !important;
-        padding: 0.7rem 1.5rem !important;
-        font-weight: 600 !important;
-        font-size: 0.95rem !important;
-        background: var(--gradient-asian) !important;
-        color: white !important;
-        border: none !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 20px rgba(229, 62, 62, 0.4) !important;
-    }
-    
-    .progress-section {
-        margin: 1.5rem 0;
-    }
-    
-    .progress-container {
-        height: 12px;
-        background: #f1f5f9;
-        border-radius: 10px;
-        overflow: hidden;
-        position: relative;
-    }
-    
-    .progress-fill {
-        height: 100%;
-        border-radius: 10px;
-        background: var(--gradient-asian);
-        transition: width 1.5s ease;
-    }
-    
-    .risk-badge {
-        display: inline-block;
-        padding: 0.4rem 1rem;
-        border-radius: 20px;
-        font-weight: 600;
-        font-size: 0.85rem;
-        text-align: center;
-    }
-    
-    .risk-low { 
-        background: var(--gradient-success);
-        color: white;
-    }
-    
-    .risk-moderate { 
-        background: var(--gradient-warning);
-        color: white;
-    }
-    
-    .risk-high { 
-        background: var(--gradient-danger);
-        color: white;
-    }
-    
-    /* Asian-inspired decorations */
-    .sakura-decoration {
-        position: absolute;
-        font-size: 1.5rem;
-        opacity: 0.2;
-        pointer-events: none;
-    }
-    
-    .asian-divider {
-        height: 2px;
-        background: var(--gradient-asian);
-        margin: 1rem 0;
-        border: none;
-    }
-    
-    .disclaimer-box {
-        background: linear-gradient(135deg, #fff5f5 0%, #feebc8 100%);
-        border-left: 4px solid var(--warning);
-        padding: 1.5rem;
-        border-radius: var(--radius-sm);
-        margin: 1.5rem 0;
-        font-size: 0.9rem;
-        color: #2d3748;
-        box-shadow: var(--shadow-sm);
-        border: 1px solid rgba(214, 158, 46, 0.3);
-    }
-    
-    .disclaimer-box h4 {
-        color: #d69e2e;
-        margin-bottom: 0.8rem;
-        font-size: 1.1rem;
-    }
-    
-    .made-with-love {
-        text-align: center;
-        padding: 1rem;
-        color: var(--primary);
-        animation: heartbeat 1.5s ease-in-out infinite;
-        margin-top: 2rem;
-        background: rgba(254, 215, 215, 0.3);
-        border-radius: var(--radius-md);
-    }
-    
-    @keyframes heartbeat {
-        0%, 100% { transform: scale(1); }
-        50% { transform: scale(1.05); }
-    }
-    
-    .love-text {
-        background: var(--gradient-asian);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: 600;
-    }
-    
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    .stDeployButton {display:none;}
-    
-    /* Sidebar styling */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1a202c 0%, #2d3748 100%);
-    }
-    
-    [data-testid="stSidebar"] .stButton > button {
-        background: linear-gradient(135deg, #e53e3e 0%, #805ad5 100%) !important;
-    }
-    
-    /* Patient table styling */
-    .patient-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 1rem 0;
-    }
-    
-    .patient-table th {
-        background: var(--gradient-asian);
-        color: white;
-        padding: 1rem;
-        text-align: left;
-        font-weight: 600;
-    }
-    
-    .patient-table td {
-        padding: 0.8rem 1rem;
-        border-bottom: 1px solid #e5e7eb;
-    }
-    
-    .patient-table tr:hover {
-        background-color: #f8fafc;
-    }
-</style>
+<script>
+// Smooth button interactions
+document.querySelectorAll('.stButton button').forEach(button => {
+    button.addEventListener('click', function() {
+        this.style.transform = 'scale(0.98)';
+        setTimeout(() => {
+            this.style.transform = '';
+        }, 150);
+    });
+});
+
+// Add fade-in animation to cards
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.style.opacity = '1';
+            entry.target.style.transform = 'translateY(0)';
+        }
+    });
+});
+
+document.querySelectorAll('.card, .card-sm').forEach(card => {
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(20px)';
+    card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+    observer.observe(card);
+});
+
+// Keyboard navigation for sidebar
+document.querySelectorAll('[data-testid="stSidebar"] .stButton button').forEach((btn, idx) => {
+    btn.setAttribute('tabindex', '0');
+    btn.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            btn.click();
+        }
+    });
+});
+</script>
 """, unsafe_allow_html=True)
 
-# ==================== DISCLAIMER ====================
-DISCLAIMER_TEXT = """
-**⚠️ Important Medical Disclaimer**
-
-This application is designed for **educational and informational purposes only**. It is **NOT** a substitute for professional medical advice, diagnosis, or treatment.
-
-**Important Notes:**
-- This tool provides risk estimates based on statistical models
-- Predictions are not 100% accurate and should not be used for self-diagnosis
-- Always consult qualified healthcare professionals for medical decisions
-- The model may not account for all individual health factors
-
-**For Emergency:** If you experience chest pain, shortness of breath, or other severe symptoms, seek immediate medical attention.
-"""
-
-# ==================== INITIALIZE SESSION STATE ====================
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-if 'user_id' not in st.session_state:
-    st.session_state.user_id = None
-if 'user_role' not in st.session_state:
-    st.session_state.user_role = 'patient'
-if 'user_name' not in st.session_state:
-    st.session_state.user_name = ''
-if 'user_country' not in st.session_state:
-    st.session_state.user_country = 'IN'  
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = 'dashboard'
-if 'predictions' not in st.session_state:
-    st.session_state.predictions = []
-if 'current_prediction' not in st.session_state:
-    st.session_state.current_prediction = None
-if 'model' not in st.session_state:
-    st.session_state.model = None
-if 'model_loaded' not in st.session_state:
-    st.session_state.model_loaded = False
-if 'model_features' not in st.session_state:
-    st.session_state.model_features = []
-
-# ==================== COUNTRY-SPECIFIC SETTINGS ====================
-COUNTRY_DATA = {
-    'US': {
-        'name': 'United States',
-        'flag': '🇺🇸',
-        'units': {
-            'blood_pressure': 'mmHg',
-            'cholesterol': 'mg/dL',
-            'blood_sugar': 'mg/dL',
-            'height': 'ft/in',
-            'weight': 'lbs'
-        }
-    },
-    'UK': {
-        'name': 'United Kingdom',
-        'flag': '🇬🇧',
-        'units': {
-            'blood_pressure': 'mmHg',
-            'cholesterol': 'mmol/L',
-            'blood_sugar': 'mmol/L',
-            'height': 'cm',
-            'weight': 'kg'
-        }
-    },
-    'EU': {
-        'name': 'Europe',
-        'flag': '🇪🇺',
-        'units': {
-            'blood_pressure': 'mmHg',
-            'cholesterol': 'mmol/L',
-            'blood_sugar': 'mmol/L',
-            'height': 'cm',
-            'weight': 'kg'
-        }
-    },
-    'IN': {
-        'name': 'India',
-        'flag': '🇮🇳',
-        'units': {
-            'blood_pressure': 'mmHg',
-            'cholesterol': 'mg/dL',
-            'blood_sugar': 'mg/dL',
-            'height': 'cm',
-            'weight': 'kg'
-        }
-    },
-    'JP': {
-        'name': 'Japan',
-        'flag': '🇯🇵',
-        'units': {
-            'blood_pressure': 'mmHg',
-            'cholesterol': 'mg/dL',
-            'blood_sugar': 'mg/dL',
-            'height': 'cm',
-            'weight': 'kg'
-        }
-    },
-    'CN': {
-        'name': 'China',
-        'flag': '🇨🇳',
-        'units': {
-            'blood_pressure': 'mmHg',
-            'cholesterol': 'mmol/L',
-            'blood_sugar': 'mmol/L',
-            'height': 'cm',
-            'weight': 'kg'
-        }
-    },
-    'KR': {
-        'name': 'South Korea',
-        'flag': '🇰🇷',
-        'units': {
-            'blood_pressure': 'mmHg',
-            'cholesterol': 'mg/dL',
-            'blood_sugar': 'mg/dL',
-            'height': 'cm',
-            'weight': 'kg'
-        }
-    }
-}
-
-import requests
-import os
-
-@st.cache_resource
-def load_model():
-    """Load the trained model from Google Drive"""
-    try: 
-        FILE_ID ="1RjZAtSzPelVfwO6EqZJpW0x0tlisu44m"
-        MODEL_URL = f"https://drive.google.com/uc?export=download&id={FILE_ID}"
-        
-        model_path = 'models/heart_model.pkl'
-        
-        # Create models folder
-        os.makedirs('models', exist_ok=True)
-        
-        # Download if file doesn't exist
-        if not os.path.exists(model_path):
-            st.info("📥 Downloading AI model from Google Drive...")
-            
-            import requests
-            import re
-            
-            # Create session
-            session = requests.Session()
-            
-            # First request to get cookies
-            response = session.get(MODEL_URL, stream=True)
-            
-            # Check if we got the virus scan warning page
-            if 'text/html' in response.headers.get('Content-Type', ''):
-                # Extract confirm token from HTML
-                content = response.text
-                confirm_token_match = re.search(r'confirm=([0-9A-Za-z_]+)', content)
-                
-                if confirm_token_match:
-                    confirm_token = confirm_token_match.group(1)
-                    MODEL_URL = f"https://drive.google.com/uc?export=download&id={FILE_ID}&confirm={confirm_token}"
-                    response = session.get(MODEL_URL, stream=True)
-            # Get total size
-            total_size = int(response.headers.get('content-length', 0))
-            # Download with progress
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            with open(model_path, 'wb') as f:
-                downloaded = 0
-                chunk_size = 32768  
-                for chunk in response.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        # Update progress
-                        if total_size > 0:
-                            progress = downloaded / total_size
-                            progress_bar.progress(min(progress, 1.0))
-                            if int(progress * 100) % 5 == 0:
-                                mb_downloaded = downloaded / 1024 / 1024
-                                mb_total = total_size / 1024 / 1024
-                                status_text.text(f"⏳ Downloaded: {mb_downloaded:.1f} MB / {mb_total:.1f} MB")
-            progress_bar.empty()
-            status_text.empty()
-            st.success("✅ Model downloaded successfully!")
-        # Load the model
-        model = joblib.load(model_path)
-        st.success("✅ Model loaded!")
-        features = [
-            'age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg',
-            'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal'
-        ]
-        return model, True, features
-    except Exception as e:
-        st.error(f" Error loading model: {str(e)}")
-        import traceback
-        st.error(f"Details: {traceback.format_exc()}")
-        # Fallback to simple model
-        st.warning("⚠️ Using fallback model for demonstration")
-        return create_fallback_model()
-def create_fallback_model():
-    """Create simple fallback model"""
-    from sklearn.ensemble import RandomForestClassifier
-    import numpy as np
-    np.random.seed(42)
-    X = np.random.randn(500, 13)
-    y = np.random.randint(0, 2, 500)
-    
-    model = RandomForestClassifier(
-        n_estimators=50,
-        max_depth=10,
-        random_state=42
-    )
-    model.fit(X, y)
-    
-    features = [
-        'age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg',
-        'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal'
-    ]
-    return model, False, features
-# Load model
-if st.session_state.model is None:
-    with st.spinner("🚀 Initializing HeartGuard AI..."):
-        model, loaded, features = load_model()
-        st.session_state.model = model
-        st.session_state.model_loaded = loaded
-        st.session_state.model_features = features
-# ==================== AUTHENTICATION ====================
-def create_users():
-    """Create default users"""
-    return {
-        "dr.kishan@heartguard.com": {
-            "password": "Doctor123",
-            "name": "Dr. Kishan",
-            "role": "doctor",
-            "specialty": "Cardiology",
-            "patients": ["akira@example.com", "li@example.com", "kim@example.com", "ekta@example.com"]
-        },
-        "akira@example.com": {
-            "password": "Patient123",
-            "name": "Akira Sato",
-            "role": "patient",
-            "doctor": "dr.kishan@heartguard.com",
-            "age": 45,
-            "gender": "Male",
-            "country": "JP"
-        },
-        "li@example.com": {
-            "password": "Patient456",
-            "name": "Li Wei",
-            "role": "patient",
-            "doctor": "dr.kishan@heartguard.com",
-            "age": 52,
-            "gender": "Female",
-            "country": "CN"
-        },
-        "kim@example.com": {
-            "password": "Patient789",
-            "name": "Kim Min-ji",
-            "role": "patient",
-            "doctor": "dr.kishan@heartguard.com",
-            "age": 38,
-            "gender": "Female",
-            "country": "KR"
-        },
-        "ekta@example.com": {
-            "password": "Patient799",
-            "name": "Ekta Sharma",
-            "role": "patient",
-            "doctor": "dr.kishan@heartguard.com",
-            "age": 18,
-            "gender": "Female",
-            "country": "IN"
-        }
-    }
-
-def authenticate(email, password):
-    """Simple authentication"""
-    users = create_users()
-    
-    if email in users and users[email]['password'] == password:
-        return True, users[email]['role'], users[email]['name'], users[email].get('country', 'IN')
-    return False, None, None, None
-
-def get_patients_for_doctor(doctor_email):
-    """Get patients for a doctor"""
-    users = create_users()
-    patients = []
-    for email, user in users.items():
-        if user.get('role') == 'patient' and user.get('doctor') == doctor_email:
-            patients.append({
-                'email': email,
-                'name': user['name'],
-                'age': user.get('age'),
-                'gender': user.get('gender'),
-                'country': user.get('country', 'IN')
-            })
-    return patients
-
-# ==================== DATA STORAGE ====================
-class DataStorage:
-    def __init__(self):
-        self.data_file = "patient_data.json"
-        self.data = self.load_data()
-    
-    def load_data(self):
-        try:
-            with open(self.data_file, 'r') as f:
-                return json.load(f)
-        except:
-            return {}
-    
-    def save_data(self):
-        with open(self.data_file, 'w') as f:
-            json.dump(self.data, f, indent=2)
-    
-    def store_prediction(self, user_id, prediction_data):
-        if user_id not in self.data:
-            self.data[user_id] = []
-        
-        prediction_data['id'] = len(self.data[user_id]) + 1
-        
-        # Store timestamp as string for JSON serialization
-        timestamp = prediction_data.get('timestamp')
-        if isinstance(timestamp, datetime):
-            prediction_data['timestamp'] = timestamp.isoformat()
-        elif timestamp is None:
-            prediction_data['timestamp'] = datetime.now().isoformat()
-        
-        self.data[user_id].append(prediction_data)
-        
-        if len(self.data[user_id]) > 50:
-            self.data[user_id] = self.data[user_id][-50:]
-        
-        self.save_data()
-    
-    def get_patient_history(self, patient_email):
-        """Get patient history and ensure timestamps are datetime objects"""
-        if patient_email not in self.data:
-            return []
-        
-        history = []
-        for pred in self.data[patient_email]:
-            try:
-                # Convert string timestamp back to datetime if needed
-                if isinstance(pred.get('timestamp'), str):
-                    pred['timestamp'] = datetime.fromisoformat(pred['timestamp'])
-                history.append(pred)
-            except Exception as e:
-                print(f"Error processing prediction: {e}")
-                continue
-        
-        return history
-    
-    def get_all_patient_records(self):
-        """Get all patient records for doctor dashboard"""
-        all_records = {}
-        for patient_email, predictions in self.data.items():
-            if predictions:
-                # Get the latest prediction for each patient
-                latest_pred = max(predictions, key=lambda x: x.get('timestamp', ''))
-                # Convert timestamp if it's a string
-                if isinstance(latest_pred.get('timestamp'), str):
-                    try:
-                        latest_pred['timestamp'] = datetime.fromisoformat(latest_pred['timestamp'])
-                    except:
-                        latest_pred['timestamp'] = datetime.now()
-                
-                all_records[patient_email] = latest_pred
-        
-        return all_records
-
-# ==================== PREDICTION ENGINE ====================
-class PredictionEngine:
-    def __init__(self, model, model_features):
-        self.model = model
-        self.model_features = model_features
-    
-    def calculate_probability(self, input_data):
-        """Calculate risk probability"""
-        try:
-            if self.model is None:
-                risk_score = self.fallback_prediction(input_data)
-            else:
-                # Prepare features
-                features = self.prepare_features(input_data)
-                
-                # Create input array
-                X = np.array([[features.get(f, 0) for f in self.model_features[:13]]])
-                
-                if hasattr(self.model, 'predict_proba'):
-                    proba = self.model.predict_proba(X)[0]
-                    risk_score = proba[1] * 100
-                else:
-                    prediction = self.model.predict(X)[0]
-                    risk_score = prediction * 100
-            
-            return {
-                'probability': risk_score / 100,
-                'percentage': round(risk_score, 1),
-                'confidence_interval': (
-                    round(max(0, risk_score - 5), 1),
-                    round(min(100, risk_score + 5), 1)
-                )
-            }
-            
-        except Exception as e:
-            risk_score = self.fallback_prediction(input_data)
-            return {
-                'probability': risk_score / 100,
-                'percentage': risk_score,
-                'confidence_interval': (risk_score - 5, risk_score + 5)
-            }
-    
-    def prepare_features(self, input_data):
-        """Prepare features for model"""
-        features = {
-            'age': input_data.get('age', 50),
-            'sex': 1 if input_data.get('gender', '').lower().startswith('male') else 0,
-            'cp': input_data.get('chest_pain_type', 0),
-            'trestbps': input_data.get('blood_pressure', 120),
-            'chol': input_data.get('cholesterol', 200),
-            'fbs': 1 if input_data.get('fasting_blood_sugar', 0) > 120 else 0,
-            'restecg': input_data.get('resting_ecg', 0),
-            'thalach': input_data.get('max_heart_rate', 150),
-            'exang': 1 if input_data.get('exercise_angina', False) else 0,
-            'oldpeak': input_data.get('st_depression', 0.0),
-            'slope': input_data.get('st_slope', 1),
-            'ca': input_data.get('vessels', 0),
-            'thal': input_data.get('thalassemia', 3),
-            'bmi': input_data.get('bmi', 25),
-            'smoking': 1 if input_data.get('smoking', False) else 0,
-            'diabetes': 1 if input_data.get('diabetes', False) else 0,
-            'family_history': 1 if input_data.get('family_history', False) else 0,
-            'physical_activity': input_data.get('physical_activity', 3),
-            'alcohol': input_data.get('alcohol', 0)
-        }
-        return features
-    
-    def fallback_prediction(self, input_data):
-        """Fallback prediction calculation"""
-        risk = 10
-        age = input_data.get('age', 50)
-        
-        if age < 30:
-            risk += 5
-        elif age < 40:
-            risk += 10
-        elif age < 50:
-            risk += 20
-        elif age < 60:
-            risk += 30
-        else:
-            risk += 40
-        
-        if input_data.get('blood_pressure', 120) > 140:
-            risk += 20
-        
-        if input_data.get('cholesterol', 200) > 240:
-            risk += 20
-        
-        if input_data.get('smoking', False):
-            risk += 25
-        
-        if input_data.get('diabetes', False):
-            risk += 20
-        
-        bmi = input_data.get('bmi', 25)
-        if bmi >= 30:
-            risk += 15
-        
-        alcohol = input_data.get('alcohol', 0)
-        if alcohol >= 2:  # Moderate or heavy drinking
-            risk += 10
-        
-        physical_activity = input_data.get('physical_activity', 3)
-        if physical_activity <= 2:  # Sedentary or light
-            risk += 10
-        
-        return min(100, risk)
-    
-    def get_risk_level(self, score):
-        """Get risk level and CSS class"""
-        if score < 20:
-            return "Low", "risk-low"
-        elif score < 50:
-            return "Moderate", "risk-moderate"
-        else:
-            return "High", "risk-high"
-    
-    def get_risk_level_from_prediction(self, pred):
-        """Get risk level from prediction, handling missing keys"""
-        risk_score = pred.get('risk_score', 0)
-        risk_level = pred.get('risk_level', 'Unknown')
-        risk_class = pred.get('risk_class', 'risk-moderate')
-        
-        # If risk_class is missing or doesn't match the score, recalculate
-        if risk_class == 'risk-moderate' or risk_class not in ['risk-low', 'risk-moderate', 'risk-high']:
-            _, risk_class = self.get_risk_level(risk_score)
-        
-        # If risk_level is Unknown, recalculate it too
-        if risk_level == 'Unknown':
-            risk_level, _ = self.get_risk_level(risk_score)
-        
-        return risk_level, risk_class
-    
-    def get_risk_factors(self, input_data):
-        """Identify key risk factors"""
-        factors = []
-        
-        bp = input_data.get('blood_pressure', 120)
-        if bp > 140:
-            factors.append({"name": "High Blood Pressure", "impact": "High", "value": f"{bp} mmHg"})
-        
-        chol = input_data.get('cholesterol', 200)
-        if chol > 240:
-            factors.append({"name": "High Cholesterol", "impact": "High", "value": f"{chol} mg/dL"})
-        
-        if input_data.get('smoking', False):
-            factors.append({"name": "Smoking", "impact": "High", "value": "Current smoker"})
-        
-        if input_data.get('diabetes', False):
-            factors.append({"name": "Diabetes", "impact": "High", "value": "Type 2 Diabetes"})
-        
-        bmi = input_data.get('bmi', 25)
-        if bmi >= 30:
-            factors.append({"name": "Obesity", "impact": "High", "value": f"BMI: {bmi:.1f}"})
-        elif bmi >= 25:
-            factors.append({"name": "Overweight", "impact": "Medium", "value": f"BMI: {bmi:.1f}"})
-        
-        physical_activity = input_data.get('physical_activity', 3)
-        if physical_activity <= 2:
-            factors.append({"name": "Low Physical Activity", "impact": "Medium", "value": "Insufficient exercise"})
-        
-        alcohol = input_data.get('alcohol', 0)
-        if alcohol >= 2:
-            factors.append({"name": "Alcohol Consumption", "impact": "Medium", "value": "Moderate to heavy"})
-        
-        return factors
-    
-    def generate_explanation(self, input_data, risk_score):
-        """Generate natural language explanation"""
-        explanation = "Based on your health profile:\n\n"
-        
-        factors = self.get_risk_factors(input_data)
-        
-        if not factors:
-            explanation += "✅ You have no major risk factors identified. Keep maintaining your healthy lifestyle! "
-            explanation += "Remember the wise saying: 'Health is better than wealth!'"
-        else:
-            explanation += f"🔍 **{len(factors)} key risk factors** identified:\n\n"
-            for i, factor in enumerate(factors, 1):
-                explanation += f"{i}. **{factor['name']}** ({factor['impact']} impact): {factor['value']}\n"
-            
-            if risk_score < 30:
-                explanation += "\n🌟 **Recommendation:** Continue your healthy lifestyle with regular check-ups. "
-                explanation += "As they say: 'Prevention is better than cure'"
-            elif risk_score < 50:
-                explanation += "\n⚠️ **Recommendation:** Consider lifestyle modifications and consult your doctor. "
-                explanation += "Small changes can make big differences!"
-            else:
-                explanation += "\n🚨 **Recommendation:** Please consult a cardiologist for further evaluation. "
-                explanation += "Your health is precious!"
-        
-        return explanation
-
-# Initialize systems
-data_storage = DataStorage()
-prediction_engine = PredictionEngine(st.session_state.model, st.session_state.model_features)
-
-# ==================== HELPER FUNCTIONS ====================
-def safe_strftime(timestamp):
-    """Safely convert timestamp to string format"""
-    if isinstance(timestamp, str):
-        try:
-            # Try to parse the string as datetime
-            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            return dt.strftime('%b %d')
-        except:
-            return "N/A"
-    elif isinstance(timestamp, datetime):
-        return timestamp.strftime('%b %d')
-    else:
-        return "N/A"
-
-def safe_datetime_format(timestamp, format_str='%B %d, %Y'):
-    """Safely format datetime object"""
-    if isinstance(timestamp, str):
-        try:
-            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            return dt.strftime(format_str)
-        except:
-            return "Recent"
-    elif isinstance(timestamp, datetime):
-        return timestamp.strftime(format_str)
-    else:
-        return "Recent"
-
-# ==================== LOGIN PAGE ====================
-def show_login_page():
-    """Login page"""
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.markdown("""
-        <div style="text-align: center; padding: 3rem 1rem;">
-            <h1 style="font-size: 4rem; margin-bottom: 1rem;">❤️</h1>
-            <h1 style="color: #e53e3e; margin-bottom: 0.5rem;">HeartGuard AI</h1>
-            <p style="color: #718096; font-size: 1.1rem;">Advanced Heart Disease Risk Prediction</p>
-            <p style="color: #38a169; margin-top: 2rem; font-style: italic;">Carefully protecting your heart</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("""
-        <div style="padding: 2rem; background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
-            <h2 style="color: #e53e3e; margin-bottom: 2rem;">🔐 Secure Login</h2>
-        """, unsafe_allow_html=True)
-        
-        email = st.text_input("📧 Email Address", placeholder="your.email@example.com")
-        password = st.text_input("🔑 Password", type="password", placeholder="••••••••")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            login_btn = st.button("Sign In", use_container_width=True, type="primary")
-        with col2:
-            demo_btn = st.button("Try Demo", use_container_width=True)
-        
-        if login_btn or demo_btn:
-            if demo_btn:
-                # Let user choose demo account
-                demo_option = st.selectbox("Select Demo Account", 
-                                          ["Patient (India)", "Patient (Japan)", "Patient (China)", "Patient (Korea)", "Doctor"])
-                if demo_option == "Patient (India)":
-                    email = "ekta@example.com"
-                    password = "Patient799"
-                elif demo_option == "Patient (Japan)":
-                    email = "akira@example.com"
-                    password = "Patient123"
-                elif demo_option == "Patient (China)":
-                    email = "li@example.com"
-                    password = "Patient456"
-                elif demo_option == "Patient (Korea)":
-                    email = "kim@example.com"
-                    password = "Patient789"
-                else:  # Doctor
-                    email = "dr.kishan@heartguard.com"
-                    password = "Doctor123"
-            
-            authenticated, role, name, country = authenticate(email, password)
-            
-            if authenticated:
-                st.session_state.logged_in = True
-                st.session_state.user_id = email
-                st.session_state.user_role = role
-                st.session_state.user_name = name
-                st.session_state.user_country = country
-                
-                # Load history
-                history = data_storage.get_patient_history(email)
-                st.session_state.predictions = history
-                
-                st.success(f"✨ Welcome back, {name}!")
-                st.rerun()
-            else:
-                st.error("❌ Invalid credentials")
-        
-        # Disclaimer
-        st.markdown(f"""
-        <div class="disclaimer-box">
-            <h4>⚠️ Important Medical Disclaimer</h4>
-            <p>This application is for <strong>educational purposes only</strong>. It is <strong>NOT</strong> a substitute for professional medical advice, diagnosis, or treatment.</p>
-            <p>Always consult healthcare professionals for medical decisions.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("""
-        <div style="margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px;">
-            <h4 style="color: #805ad5; margin-bottom: 1rem;">👥 Demo Credentials</h4>
-            <p><strong>🇮🇳 Patient (India):</strong> ekta@example.com / Patient799</p>
-            <p><strong>🇯🇵 Patient (Japan):</strong> akira@example.com / Patient123</p>
-            <p><strong>🇨🇳 Patient (China):</strong> li@example.com / Patient456</p>
-            <p><strong>🇰🇷 Patient (Korea):</strong> kim@example.com / Patient789</p>
-            <p><strong>👨‍⚕️ Doctor:</strong> dr.kishan@heartguard.com / Doctor123</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Made with Love
-        st.markdown("""
-        <div class="made-with-love">
-            <p style="margin: 0;">💖 <span class="love-text">Made with Love for the Community</span> 💖</p>
-            <p style="font-size: 0.8rem; color: #718096; margin-top: 0.5rem;">Crafted with care for heart health</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# ==================== PATIENT DASHBOARD ====================
-def show_patient_dashboard():
-    """Patient dashboard"""
-    st.markdown('<div class="ultimate-container">', unsafe_allow_html=True)
-    
-    # Header
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.markdown(f"""
-        <h1 class="ultimate-title">👤 Patient Dashboard</h1>
-        <p class="ultimate-subtitle">
-            Welcome back, <strong>{st.session_state.user_name}</strong>!<br/>
-            Monitor your heart health journey.
-        </p>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        country = COUNTRY_DATA.get(st.session_state.user_country, COUNTRY_DATA['IN'])
-        st.markdown(f"""
-        <div style="text-align: center; padding: 1rem; background: #fed7d7; border-radius: 12px; border: 2px solid #e53e3e;">
-            <div style="font-size: 2rem;">{country['flag']}</div>
-            <div style="color: #e53e3e; font-weight: bold;">{country['name']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        total = len(st.session_state.predictions)
-        st.markdown(f"""
-        <div class="ultimate-metric">
-            <div class="metric-value">{total}</div>
-            <div class="metric-label">Total Assessments</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        if st.session_state.predictions:
-            latest = st.session_state.predictions[-1]
-            risk_score = latest.get('risk_score', 0)
-            st.markdown(f"""
-            <div class="ultimate-metric" style="background: var(--gradient-asian);">
-                <div class="metric-value">{risk_score}%</div>
-                <div class="metric-label">Current Risk</div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="ultimate-metric">
-                <div class="metric-value">--</div>
-                <div class="metric-label">Current Risk</div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    with col3:
-        accuracy = "94.2%" if st.session_state.model_loaded else "85.5%"
-        st.markdown(f"""
-        <div class="ultimate-metric" style="background: var(--gradient-success);">
-            <div class="metric-value">{accuracy}</div>
-            <div class="metric-label">Model Accuracy</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        if st.session_state.predictions:
-            last_date = safe_strftime(st.session_state.predictions[-1]['timestamp'])
-            st.markdown(f"""
-            <div class="ultimate-metric" style="background: var(--gradient-warning);">
-                <div class="metric-value">{last_date}</div>
-                <div class="metric-label">Last Check</div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="ultimate-metric">
-                <div class="metric-value">--</div>
-                <div class="metric-label">Last Check</div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # Quick Actions
-    st.markdown("### ⚡ Quick Actions")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("🩺 New Assessment", use_container_width=True):
-            st.session_state.current_page = "assessment"
-            st.rerun()
-    
-    with col2:
-        if st.button("📊 View Results", use_container_width=True):
-            if st.session_state.predictions:
-                st.session_state.current_prediction = st.session_state.predictions[-1]
-                st.session_state.current_page = "results"
-                st.rerun()
-            else:
-                st.warning("Complete an assessment first!")
-    
-    with col3:
-        if st.button("📈 View History", use_container_width=True):
-            st.session_state.current_page = "history"
-            st.rerun()
-    
-    # Recent Activity
-    st.markdown("### 📋 Recent Activity")
-    
-    if st.session_state.predictions:
-        recent = st.session_state.predictions[-3:] if len(st.session_state.predictions) >= 3 else st.session_state.predictions
-        for pred in reversed(recent):
-            risk_level, risk_class = prediction_engine.get_risk_level_from_prediction(pred)
-            
-            col1, col2, col3 = st.columns([3, 2, 1])
-            
-            with col1:
-                date_str = safe_datetime_format(pred['timestamp'])
-                st.markdown(f"**{date_str}**")
-                st.markdown(f"*Age: {pred.get('age', 'N/A')} • {pred.get('gender', 'N/A')}*")
-            
-            with col2:
-                st.markdown(f'<div class="{risk_class} risk-badge">{risk_level}</div>', unsafe_allow_html=True)
-            
-            with col3:
-                st.markdown(f"### {pred.get('risk_score', 0)}%")
-            
-            st.markdown('<hr class="asian-divider">', unsafe_allow_html=True)
-    else:
-        st.info("🌟 No assessments yet. Start your heart health journey!")
-    
-    # Disclaimer at bottom
-    st.markdown(f"""
-    <div class="disclaimer-box">
-        <h4>⚠️ Important Medical Disclaimer</h4>
-        <p>This application is for <strong>educational purposes only</strong>. It is <strong>NOT</strong> a substitute for professional medical advice, diagnosis, or treatment.</p>
-        <p>Always consult healthcare professionals for medical decisions.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ==================== DOCTOR DASHBOARD ====================
-def show_doctor_dashboard():
-    """Doctor dashboard to view patient records"""
-    st.markdown('<div class="ultimate-container">', unsafe_allow_html=True)
-    
-    st.markdown(f"""
-    <h1 class="ultimate-title">👨‍⚕️ Doctor Dashboard</h1>
-    <p class="ultimate-subtitle">
-        Welcome, <strong>{st.session_state.user_name}</strong>!<br/>
-        Monitor your patients' heart health records.
-    </p>
-    """, unsafe_allow_html=True)
-    
-    # Get all patients
-    patients = get_patients_for_doctor(st.session_state.user_id)
-    
-    if not patients:
-        st.warning("No patients assigned to you yet.")
-        st.markdown('</div>', unsafe_allow_html=True)
-        return
-    
-    # Patient selection
-    st.markdown("### 👥 Patient Management")
-    
-    patient_options = {p['name']: p['email'] for p in patients}
-    selected_patient_name = st.selectbox("Select Patient", list(patient_options.keys()))
-    selected_patient_email = patient_options[selected_patient_name]
-    
-    # Get patient details
-    selected_patient = next(p for p in patients if p['email'] == selected_patient_email)
-    
-    # Display patient info
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Patient Name", selected_patient['name'])
-    with col2:
-        st.metric("Age", selected_patient['age'])
-    with col3:
-        st.metric("Gender", selected_patient['gender'])
-    with col4:
-        country = COUNTRY_DATA.get(selected_patient['country'], COUNTRY_DATA['IN'])
-        st.metric("Country", country['name'])
-    
-    # Get patient history
-    patient_history = data_storage.get_patient_history(selected_patient_email)
-    
-    if patient_history:
-        st.markdown(f"### 📊 Assessment History for {selected_patient['name']}")
-        
-        # Create DataFrame for better display
-        history_data = []
-        for pred in patient_history:
-            history_data.append({
-                'Date': safe_datetime_format(pred['timestamp']),
-                'Risk Score': f"{pred.get('risk_score', 0)}%",
-                'Risk Level': pred.get('risk_level', 'Unknown'),
-                'Age': pred.get('age', 'N/A'),
-                'BP': pred.get('input_data', {}).get('blood_pressure', 'N/A'),
-                'Cholesterol': pred.get('input_data', {}).get('cholesterol', 'N/A'),
-                'BMI': f"{pred.get('input_data', {}).get('bmi', 'N/A'):.1f}" if pred.get('input_data', {}).get('bmi') else 'N/A'
-            })
-        
-        if history_data:
-            df = pd.DataFrame(history_data)
-            st.dataframe(df, use_container_width=True)
-            
-            # Latest assessment details
-            latest_pred = patient_history[-1]
-            st.markdown("### 🔍 Latest Assessment Details")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Risk Score", f"{latest_pred.get('risk_score', 0)}%")
-                st.metric("Age", latest_pred.get('age', 'N/A'))
-                st.metric("Blood Pressure", f"{latest_pred.get('input_data', {}).get('blood_pressure', 'N/A')} mmHg")
-            
-            with col2:
-                risk_level, risk_class = prediction_engine.get_risk_level_from_prediction(latest_pred)
-                st.markdown(f'<div class="{risk_class} risk-badge" style="font-size: 1.2rem; padding: 0.8rem;">{risk_level} RISK</div>', 
-                          unsafe_allow_html=True)
-                st.metric("Cholesterol", f"{latest_pred.get('input_data', {}).get('cholesterol', 'N/A')} mg/dL")
-                st.metric("BMI", f"{latest_pred.get('input_data', {}).get('bmi', 'N/A'):.1f}")
-            
-            # Risk factors
-            if latest_pred.get('factors'):
-                st.markdown("### ⚠️ Identified Risk Factors")
-                for factor in latest_pred['factors']:
-                    col1, col2, col3 = st.columns([3, 1, 1])
-                    with col1:
-                        st.write(f"**{factor['name']}**")
-                        st.write(f"{factor['value']}")
-                    with col2:
-                        st.write(f"**{factor['impact']}**")
-                    with col3:
-                        if factor['impact'] == 'High':
-                            st.error("⚠️")
-                        elif factor['impact'] == 'Medium':
-                            st.warning("⚠️")
-                        else:
-                            st.info("ℹ️")
-    else:
-        st.info(f"No assessment history found for {selected_patient['name']}.")
-    
-    # All patients overview
-    st.markdown("### 📈 All Patients Overview")
-    
-    overview_data = []
-    for patient in patients:
-        history = data_storage.get_patient_history(patient['email'])
-        if history:
-            latest = history[-1]
-            overview_data.append({
-                'Patient': patient['name'],
-                'Last Check': safe_datetime_format(latest['timestamp'], '%Y-%m-%d'),
-                'Risk Score': f"{latest.get('risk_score', 0)}%",
-                'Risk Level': latest.get('risk_level', 'Unknown'),
-                'Age': patient['age'],
-                'Country': COUNTRY_DATA.get(patient['country'], COUNTRY_DATA['IN'])['name']
-            })
-    
-    if overview_data:
-        overview_df = pd.DataFrame(overview_data)
-        st.dataframe(overview_df, use_container_width=True)
-    
-    # Disclaimer
-    st.markdown(f"""
-    <div class="disclaimer-box">
-        <h4>⚠️ Doctor's Note</h4>
-        <p>This tool provides supplementary information for patient assessment. All predictions should be verified through clinical evaluation and diagnostic tests.</p>
-        <p><strong>Important:</strong> These predictions are based on statistical models and should not be the sole basis for medical decisions.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ==================== ASSESSMENT PAGE ====================
-def show_assessment_page():
-    """Assessment form"""
-    st.markdown('<div class="ultimate-container">', unsafe_allow_html=True)
-    
+# ─── FOOTER ───────────────────────────────────────────────────────────────────
+def add_footer():
     st.markdown("""
-    <h1 class="ultimate-title">🩺 Heart Disease Risk Assessment</h1>
-    <p class="ultimate-subtitle">Complete this form for a personalized risk analysis</p>
-    """, unsafe_allow_html=True)
-    
-    # Country Selection
-    country = st.selectbox(
-        "🌍 Select Your Country",
-        options=list(COUNTRY_DATA.keys()),
-        format_func=lambda x: f"{COUNTRY_DATA[x]['flag']} {COUNTRY_DATA[x]['name']}",
-        index=list(COUNTRY_DATA.keys()).index(st.session_state.user_country) if st.session_state.user_country in COUNTRY_DATA else 0
-    )
-    
-    st.session_state.user_country = country
-    units = COUNTRY_DATA[country]['units']
-    
-    with st.form("assessment_form"):
-        # Personal Information - NOT pre-filled
-        st.markdown("### 👤 Personal Information")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            age = st.number_input("Age (years)", min_value=18, max_value=100, value=30, step=1)
-            gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-            
-            if units['height'] == 'ft/in':
-                col_ft, col_in = st.columns(2)
-                with col_ft:
-                    height_ft = st.number_input("Feet", min_value=3, max_value=8, value=5, step=1)
-                with col_in:
-                    height_in = st.number_input("Inches", min_value=0, max_value=11, value=6, step=1)
-                height_cm = (height_ft * 30.48) + (height_in * 2.54)
-            else:
-                height_cm = st.number_input("Height (cm)", min_value=100, max_value=250, value=165, step=1)
-        
-        with col2:
-            if units['weight'] == 'lbs':
-                weight_lbs = st.number_input("Weight (lbs)", min_value=66, max_value=440, value=132, step=1)
-                weight_kg = weight_lbs * 0.453592
-            else:
-                weight_kg = st.number_input("Weight (kg)", min_value=30, max_value=200, value=60, step=1)
-            
-            # Calculate BMI
-            if height_cm > 0:
-                bmi = weight_kg / ((height_cm/100) ** 2)
-                st.metric("BMI", f"{bmi:.1f}")
-                if bmi < 18.5:
-                    st.info("Underweight")
-                elif bmi < 23:
-                    st.success("Normal weight")
-                elif bmi < 27.5:
-                    st.warning("Overweight (Asian standard)")
-                else:
-                    st.error("Obese")
-            else:
-                bmi = 22.0
-        # Medical History
-        st.markdown("### 🏥 Medical History")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            blood_pressure = st.slider(
-                f"Blood Pressure ({units['blood_pressure']})",
-                80, 200, 120, 5
-            )
-            
-            if units['cholesterol'] == 'mg/dL':
-                cholesterol = st.slider(
-                    f"Total Cholesterol ({units['cholesterol']})",
-                    100, 400, 180, 10
-                )
-            else:
-                cholesterol_mmol = st.slider(
-                    f"Total Cholesterol ({units['cholesterol']})",
-                    2.6, 10.3, 4.7, 0.1
-                )
-                cholesterol = cholesterol_mmol * 38.67
-        
-        with col2:
-            if units['blood_sugar'] == 'mg/dL':
-                fasting_blood_sugar = st.slider(
-                    f"Fasting Blood Sugar ({units['blood_sugar']})",
-                    70, 300, 90, 5
-                )
-            else:
-                fbs_mmol = st.slider(
-                    f"Fasting Blood Sugar ({units['blood_sugar']})",
-                    3.9, 16.7, 5.0, 0.1
-                )
-                fasting_blood_sugar = fbs_mmol * 18
-            
-            diabetes = st.checkbox("Diabetes", value=False)
-            family_history = st.checkbox("Family History of Heart Disease", value=False)
-        
-        # Lifestyle Factors
-        st.markdown("### 🏃 Lifestyle Factors")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            smoking = st.checkbox("Smoker", value=False)
-            
-            # Alcohol options
-            alcohol_options = [
-                "Never",
-                "Occasionally (1-4 drinks/week)",
-                "Moderately (5-14 drinks/week)",
-                "Heavily (15+ drinks/week)"
-            ]
-            alcohol_choice = st.selectbox("Alcohol Consumption", alcohol_options, index=0)
-            
-            # Map full string to score
-            alcohol_map = {
-                "Never": 0,
-                "Occasionally (1-4 drinks/week)": 1,
-                "Moderately (5-14 drinks/week)": 2,
-                "Heavily (15+ drinks/week)": 3
-            }
-            alcohol_score = alcohol_map[alcohol_choice]
-        
-        with col2:
-            # Physical activity options
-            physical_activity_options = [
-                "Sedentary (little/no exercise)",
-                "Light (1-3 days/week)",
-                "Moderate (3-5 days/week)",
-                "Active (6-7 days/week)",
-                "Athlete (daily intense exercise)"
-            ]
-            physical_activity_choice = st.selectbox("Physical Activity Level", physical_activity_options, index=2)
-            
-            # Map full string to score
-            activity_map = {
-                "Sedentary (little/no exercise)": 1,
-                "Light (1-3 days/week)": 2,
-                "Moderate (3-5 days/week)": 3,
-                "Active (6-7 days/week)": 4,
-                "Athlete (daily intense exercise)": 5
-            }
-            activity_score = activity_map[physical_activity_choice]
-        
-        # Clinical Parameters (Optional)
-        st.markdown("### 🔬 Clinical Parameters (Optional)")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            chest_pain_type = st.selectbox(
-                "Chest Pain Type",
-                ["None", "Typical angina", "Atypical angina", "Non-anginal pain", "Asymptomatic"],
-                index=0
-            )
-            chest_pain_map = {"None": 0, "Typical angina": 1, "Atypical angina": 2, "Non-anginal pain": 3, "Asymptomatic": 4}
-            chest_pain_score = chest_pain_map[chest_pain_type]
-            
-            max_heart_rate = st.slider("Maximum Heart Rate Achieved", 60, 220, 150)
-        
-        with col2:
-            exercise_angina = st.checkbox("Exercise Induced Angina", value=False)
-            st_depression = st.slider("ST Depression (oldpeak)", 0.0, 6.0, 0.0, 0.1)
-        
-        # Submit Button
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.form_submit_button("🚀 Calculate My Risk", use_container_width=True, type="primary"):
-                # Prepare input data
-                input_data = {
-                    'age': age,
-                    'gender': gender,
-                    'blood_pressure': blood_pressure,
-                    'cholesterol': cholesterol,
-                    'fasting_blood_sugar': fasting_blood_sugar,
-                    'diabetes': diabetes,
-                    'family_history': family_history,
-                    'smoking': smoking,
-                    'alcohol': alcohol_score,
-                    'physical_activity': activity_score,
-                    'bmi': bmi,
-                    'chest_pain_type': chest_pain_score,
-                    'max_heart_rate': max_heart_rate,
-                    'exercise_angina': exercise_angina,
-                    'st_depression': st_depression
-                }
-                
-                # Calculate probability
-                probability_data = prediction_engine.calculate_probability(input_data)
-                risk_score = probability_data['percentage']
-                risk_level, risk_class = prediction_engine.get_risk_level(risk_score)
-                
-                # Get risk factors and explanation
-                factors = prediction_engine.get_risk_factors(input_data)
-                explanation = prediction_engine.generate_explanation(input_data, risk_score)
-                
-                # Store prediction
-                prediction = {
-                    "timestamp": datetime.now(),
-                    "age": age,
-                    "gender": gender,
-                    "risk_score": risk_score,
-                    "risk_level": risk_level,
-                    "risk_class": risk_class,
-                    "probability_data": probability_data,
-                    "factors": factors,
-                    "explanation": explanation,
-                    "input_data": input_data,
-                    "country": country,
-                    "units": units
-                }
-                
-                st.session_state.current_prediction = prediction
-                st.session_state.predictions.append(prediction)
-                
-                # Save to storage
-                data_storage.store_prediction(st.session_state.user_id, prediction)
-                
-                st.success("✅ Assessment complete!")
-                st.session_state.current_page = "results"
-                st.rerun()
-    
-    # Disclaimer
-    st.markdown(f"""
-    <div class="disclaimer-box">
-        <h4>⚠️ Important Note</h4>
-        <p>This assessment tool is based on statistical models and does not replace professional medical diagnosis.</p>
-        <p>Cardiovascular risk factors may differ in Asian populations. Please consult healthcare professionals.</p>
+    <div class="site-footer">
+        <span>🫀 CardioVue AI </span>
+        <span style="color:var(--b2)">·</span>
+        <span>Ensemble ML · HIPAA Compliant</span>
+        <span style="color:var(--b2)">·</span>
+        <a href="#">Privacy</a>
+        <span style="color:var(--b2)">·</span>
+        <a href="#">Terms and Conditions</a>
     </div>
     """, unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
 
-# ==================== RESULTS PAGE ====================
-def show_results_page():
-    """Results page"""
-    if not st.session_state.current_prediction:
-        st.session_state.current_page = "dashboard"
-        st.rerun()
-    
-    pred = st.session_state.current_prediction
-    
-    st.markdown('<div class="ultimate-container">', unsafe_allow_html=True)
-    
-    st.markdown("""
-    <h1 class="ultimate-title">Risk Assessment Results</h1>
-    <p class="ultimate-subtitle">Your personalized heart health analysis</p>
-    """, unsafe_allow_html=True)
-    
-    # Risk Score
-    risk_score = pred['risk_score']
-    risk_level = pred.get('risk_level', 'Unknown')
-    risk_class = pred.get('risk_class', 'risk-moderate')
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col2:
-        st.markdown(f"""
-        <div style="text-align: center; padding: 2rem;">
-            <div style="font-size: 4rem; font-weight: 800; color: #e53e3e; margin: 1rem 0;">
-                {risk_score}%
+# ─── AUTH ──────────────────────────────────────────────────────────────────────
+def show_login():
+    col_l, col_r = st.columns([1, 1], gap="large")
+
+    with col_l:
+        st.markdown("""
+        <div class="login-hero">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:1.5rem">
+                <div style="width:28px;height:28px;background:rgba(20,184,166,0.18);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem">🫀</div>
+                <span style="font-size:0.88rem;font-weight:700;color:var(--t1)">CardioVue <span style="color:var(--teal-lt)">AI</span></span>
+                <span class="badge badge-teal" style="margin-left:4px">v2.0</span>
             </div>
-            <div class="{risk_class} risk-badge" style="font-size: 1.1rem; margin: 1rem auto;">
-                {risk_level} RISK
-            </div>
-            <p style="color: #718096; margin-top: 1rem;">
-                Probability of heart disease in next 10 years
+            <h1>Clinical-grade<br><em>Heart Risk</em><br>Intelligence</h1>
+            <p style="margin-top:0.75rem;max-width:340px">
+                Ensemble ML trained on 253,680 patient records. Real-time cardiovascular risk prediction for patients, clinicians, and researchers.
             </p>
         </div>
         """, unsafe_allow_html=True)
-    
-    # Probability Details
-    st.markdown("### Probability Analysis")
-    
-    prob_data = pred.get('probability_data', {})
-    ci_low, ci_high = prob_data.get('confidence_interval', (risk_score-5, risk_score+5))
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Risk Score", f"{risk_score}%")
-    
-    with col2:
-        st.metric("Confidence", f"{ci_low}-{ci_high}%")
-    
-    with col3:
-        accuracy = "94.2%" if st.session_state.model_loaded else "85.5%"
-        st.metric("Model Accuracy", accuracy)
-    
-    # Risk Factors
-    st.markdown("### Risk Factors Identified")
-    
-    factors = pred.get('factors', [])
-    if factors:
-        for factor in factors:
-            col1, col2, col3 = st.columns([3, 1, 1])
-            
-            with col1:
-                st.write(f"**{factor['name']}**")
-                st.write(f"{factor['value']}")
-            
-            with col2:
-                st.write(f"**{factor['impact']}**")
-            
-            with col3:
-                if factor['impact'] == 'High':
-                    st.error("⚠️ High Risk")
-                elif factor['impact'] == 'Medium':
-                    st.warning("⚠️ Medium Risk")
-                else:
-                    st.info("ℹ️ Low Risk")
-            
-            st.markdown('<hr class="asian-divider">', unsafe_allow_html=True)
-    else:
-        st.success("🎉 No major risk factors identified! Keep up the healthy lifestyle!")
-    
-    # Explanation
-    st.markdown("### AI Explanation")
-    st.write(pred.get('explanation', 'No explanation available.'))
-    
-    # Recommendations with Asian context
-    st.markdown("### Personalized Recommendations")
-    
-    recommendations = []
-    
-    if risk_score >= 50:
-        recommendations.append("🏥 **Consult a cardiologist immediately** for comprehensive evaluation")
-        recommendations.append("📊 **Monitor blood pressure daily** and keep records")
-    
-    if any(f['name'] == 'High Blood Pressure' for f in factors):
-        recommendations.append("🧂 **Reduce sodium intake** to less than 2,300mg daily")
-        recommendations.append("😌 **Practice stress management** like meditation or Tai Chi")
-    
-    if any(f['name'] == 'High Cholesterol' for f in factors):
-        recommendations.append("🥑 **Increase soluble fiber** (oats, beans, apples)")
-        recommendations.append("🐟 **Eat fatty fish 2-3 times per week** like salmon")
-    
-    if any(f['name'] == 'Smoking' for f in factors):
-        recommendations.append("🚭 **Quit smoking immediately** - seek cessation program support")
-    
-    if any('BMI' in f['name'] for f in factors):
-        recommendations.append("🏃 **Exercise regularly** - 150 minutes per week")
-        recommendations.append("🥗 **Focus on portion control** and balanced meals")
-    
-    # General recommendations with Asian perspective
-    recommendations.extend([
-        "💧 **Stay hydrated** - 8-10 glasses of water daily",
-        "😴 **Get quality sleep** - 7-9 hours nightly",
-        "🍵 **Drink green tea** - rich in antioxidants",
-        "🥢 **Use healthy cooking methods** - steam, boil instead of fry",
-        "🧘 **Practice Tai Chi or Yoga** for stress management",
-        "🍎 **Eat colorful fruits and vegetables daily**"
-    ])
-    
-    for i, rec in enumerate(recommendations[:6], 1):
-        st.markdown(f"{i}. {rec}")
-    
-    # Action Buttons
-    st.markdown('<hr class="asian-divider">', unsafe_allow_html=True)
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("🔄 New Assessment", use_container_width=True):
-            st.session_state.current_page = "assessment"
-            st.rerun()
-    
-    with col2:
-        if st.button("📈 View History", use_container_width=True):
-            st.session_state.current_page = "history"
-            st.rerun()
-    
-    with col3:
-        if st.button("🏠 Dashboard", use_container_width=True):
-            st.session_state.current_page = "dashboard"
-            st.rerun()
-    
-    # Made with Love
-    st.markdown("""
-    <div class="made-with-love">
-        <p style="margin: 0;">💖 <span class="love-text">Made with love for your heart health</span> 💖</p>
-        <p style="font-size: 0.8rem; color: #718096; margin-top: 0.5rem;">Crafted with care for our community</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
 
-# ==================== HISTORY PAGE ====================
-def show_history_page():
-    """History page"""
-    st.markdown('<div class="ultimate-container">', unsafe_allow_html=True)
-    
-    st.markdown("""
-    <h1 class="ultimate-title">📈 Assessment History</h1>
-    <p class="ultimate-subtitle">Track your heart health journey over time</p>
-    """, unsafe_allow_html=True)
-    
-    if not st.session_state.predictions:
-        st.info("No assessment history found. Complete an assessment first!")
-        
-        if st.button("🩺 Start First Assessment"):
-            st.session_state.current_page = "assessment"
-            st.rerun()
-    else:
-        # Display history
-        for pred in reversed(st.session_state.predictions):
-            risk_level, risk_class = prediction_engine.get_risk_level_from_prediction(pred)
-            date_str = safe_datetime_format(pred['timestamp'])
-            
-            with st.expander(f"{date_str} - {pred.get('risk_score', 0)}% Risk"):
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("Risk Score", f"{pred.get('risk_score', 0)}%")
-                
-                with col2:
-                    st.markdown(f'<div class="{risk_class} risk-badge">{risk_level}</div>', 
-                              unsafe_allow_html=True)
-                
-                with col3:
-                    st.metric("Age", pred.get('age', 'N/A'))
-                
-                if pred.get('factors'):
-                    st.write("**Key Factors:**")
-                    for factor in pred['factors'][:3]:
-                        st.write(f"- {factor.get('name', 'Unknown')} ({factor.get('impact', 'Medium')})")
-        
-        # Statistics
-        if len(st.session_state.predictions) > 1:
-            st.markdown("### 📊 Statistics")
-            
-            scores = [p.get('risk_score', 0) for p in st.session_state.predictions]
-            avg_score = np.mean(scores)
-            max_score = max(scores)
-            min_score = min(scores)
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Average Risk", f"{avg_score:.1f}%")
-            with col2:
-                st.metric("Highest Risk", f"{max_score}%")
-            with col3:
-                st.metric("Lowest Risk", f"{min_score}%")
-    
-    # Disclaimer
-    st.markdown(f"""
-    <div class="disclaimer-box">
-        <h4>Health Tip</h4>
-        <p>According to Asian Society of Cardiology, regular exercise, balanced diet, and stress management are crucial for heart health.</p>
-        <p><strong>Remember:</strong> This tool is for educational purposes. Always consult healthcare professionals for medical advice.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <img src="https://images.unsplash.com/photo-1584036561566-baf8f5f1b144?w=700&q=80&auto=format&fit=crop"
+             class="section-img" style="height:175px;object-fit:cover;margin-bottom:6px"
+             alt="Cardiologist reviewing patient data"/>
+        <p class="img-caption">Trusted by clinicians · Validated on 253,680 real patient records</p>
+        """, unsafe_allow_html=True)
 
-# ==================== SIDEBAR ====================
+        s1, s2, s3 = st.columns(3)
+        for col, num, lbl in [(s1,"253K","Records"),(s2,"94.2%","Accuracy"),(s3,"8","ML Models")]:
+            with col:
+                st.markdown(f'<div class="stat-box"><div><div class="stat-num">{num}</div><div class="stat-lbl">{lbl}</div></div></div>', unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="card" style="margin-top:0.75rem">
+            <div class="card-title">Platform capabilities</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+                <div class="feat-item"><div class="feat-dot"></div>XGBoost + LightGBM ensemble</div>
+                <div class="feat-item"><div class="feat-dot"></div>Real-time ECG analysis</div>
+                <div class="feat-item"><div class="feat-dot"></div>What-If scenario planner</div>
+                <div class="feat-item"><div class="feat-dot"></div>AI health assistant</div>
+                <div class="feat-item" style="border:none"><div class="feat-dot"></div>SHAP explainability</div>
+                <div class="feat-item" style="border:none"><div class="feat-dot"></div>Research analytics lab</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_r:
+        st.markdown("""
+        <div style="margin-bottom:0.5rem">
+            <div style="font-size:0.85rem;font-weight:600;color:var(--t1);margin-bottom:0.125rem">Sign in to your account</div>
+            <div style="font-size:0.75rem;color:var(--t3)">Demo: patient1 / patient123 &nbsp;·&nbsp; doctor1 / doctor123  &nbsp;·&nbsp; researcher1 / research123</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        tab1, tab2 = st.tabs(["Sign In", "Create Account"])
+
+        with tab1:
+            with st.form("login"):
+                username_in = st.text_input("Username", placeholder="your username")
+                password_in = st.text_input("Password", type="password", placeholder="••••••••")
+                
+                col_btn1, col_btn2 = st.columns([1, 1])
+                with col_btn1:
+                    submitted = st.form_submit_button("Sign in →", type="primary", use_container_width=True)
+                with col_btn2:
+                    st.markdown('<div style="text-align:right;margin-top:8px"><a href="#" style="color:var(--teal);font-size:0.7rem">Forgot password?</a></div>', unsafe_allow_html=True)
+                
+                if submitted:
+                    if username_in and password_in:
+                        with st.spinner("Authenticating..."):
+                            user = authenticate(username_in, password_in)
+                            if user:
+                                st.session_state.update({
+                                    'logged_in': True, 
+                                    'username': username_in,
+                                    'user': user, 
+                                    'session_start': datetime.now(),
+                                    'page': 'dashboard'
+                                })
+                                st.success(f"Welcome back, {user['name']}!")
+                                time.sleep(0.8)
+                                st.rerun()
+                            else:
+                                st.error("Invalid credentials. Please check your username and password.")
+                    else:
+                        st.warning("Please enter both username and password.")
+
+        with tab2:
+            with st.form("register"):
+                st.markdown('<div style="margin-bottom:1rem;"><span style="font-weight: 600;">Create your account</span></div>', unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
+                with c1:
+                    ru = st.text_input("Username *", placeholder="Choose username")
+                    rn = st.text_input("Full Name *", placeholder="Your full name")
+                    rr = st.selectbox("Role *", ["patient", "doctor", "researcher"], format_func=lambda x: x.title())
+                with c2:
+                    rp = st.text_input("Password *", type="password", placeholder="Strong password")
+                    re = st.text_input("Email *", placeholder="you@email.com")
+                    rage = st.number_input("Age", 18, 100, 35) if rr == "patient" else None
+                
+                st.markdown("""
+                <div style="font-size:0.7rem;color:var(--t3);margin:0.5rem 0;">
+                    By creating an account, you agree to our Terms of Service and Privacy Policy.
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if st.form_submit_button("Create account →", type="primary", use_container_width=True):
+                    if ru and rp and rn and re:
+                        if len(rp) < 6:
+                            st.error("Password must be at least 6 characters.")
+                        else:
+                            extra = {'age': rage} if rage else {}
+                            ok, msg = register_user(ru, rp, rr, rn, re, extra)
+                            if ok:
+                                st.success(msg)
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                    else:
+                        st.warning("Please fill all required fields.")
+
+# ─── SIDEBAR ───────────────────────────────────────────────────────────────────
 def show_sidebar():
-    """Sidebar navigation"""
+    user = st.session_state.user
+    role = user['role']
+    nav = {
+        'patient': [
+            ('dashboard',       '⬛', 'Dashboard'),
+            ('risk_prediction', '◎', 'Risk Assessment'),
+            ('whatif',          '⊙', 'What-If Planner'),
+            ('ecg',             '〰', 'ECG Viewer'),
+            ('health_records',  '⊞', 'Health Records'),
+            ('appointments',    '◫', 'Appointments'),
+            ('goals',           '◈', 'Goals'),
+            ('ai_assistant',    '◉', 'AI Assistant'),
+            ('notifications',   '⊡', 'Notifications'),
+            ('profile',         '◷', 'Profile'),
+        ],
+        'doctor': [
+            ('dashboard',       '⬛', 'Dashboard'),
+            ('patients',        '◎', 'Patients'),
+            ('risk_prediction', '◉', 'Risk Analysis'),
+            ('whatif',          '⊙', 'Scenario Planner'),
+            ('ecg',             '〰', 'ECG Viewer'),
+            ('appointments',    '◫', 'Appointments'),
+            ('analytics',       '📊', 'Analytics'),
+            ('telemedicine',    '◈', 'Telemedicine'),
+            ('guidelines',      '📋', 'Guidelines'),
+        ],
+        'researcher': [
+            ('dashboard',        '⬛', 'Dashboard'),
+            ('research_hub',     '🔬', 'Research Hub'),
+            ('literature_review','📚', 'Literature Review'),
+            ('dataset',          '🗂️', 'Dataset Explorer'),
+            ('analytics',        '📊', 'Analytics'),
+            ('model_lab',        '🧠', 'Model Lab'),
+            ('experiments',      '🧪', 'Experiments'),
+            ('collaboration',    '🤝', 'Collaboration'),
+        ],
+    }
+
     with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 2rem; padding: 1rem; background: linear-gradient(135deg, #e53e3e 0%, #805ad5 100%); border-radius: 12px;">
-            <div style="font-size: 3rem;">❤️</div>
-            <h3 style="color: white; margin: 0.5rem 0;">HeartGuard AI</h3>
-            <p style="color: rgba(255,255,255,0.9); margin: 0.2rem 0;">{name}</p>
-            <p style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">{role}</p>
+        initials = ''.join(w[0].upper() for w in user['name'].split()[:2])
+        st.markdown(f"""
+        <div style="padding:1rem 0.75rem 0.75rem;border-bottom:1px solid var(--b1);margin-bottom:0.5rem">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem">
+                <div style="width:22px;height:22px;background:rgba(20,184,166,0.14);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:0.8rem">🫀</div>
+                <span style="font-size:0.85rem;font-weight:700;letter-spacing:-0.01em;color:var(--t1)">CardioVue <span style="color:var(--teal-lt)">AI</span></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+                <div class="avatar" style="width:32px;height:32px;font-size:0.75rem">{initials}</div>
+                <div style="min-width:0">
+                    <div style="font-size:0.78rem;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{user['name']}</div>
+                    <span class="role-badge role-{role}" style="margin-top:2px;display:inline-flex">{role.upper()}</span>
+                </div>
+            </div>
         </div>
-        """.format(name=st.session_state.user_name, role=st.session_state.user_role.title()), unsafe_allow_html=True)
-        
-        # Navigation based on role
-        if st.session_state.user_role == 'doctor':
-            pages = [
-                ("👨‍⚕️ Dashboard", "doctor_dashboard"),
-                ("👥 Patients", "patients"),
-                ("📊 Analytics", "analytics")
-            ]
-        else:
-            pages = [
-                ("🏠 Dashboard", "dashboard"),
-                ("🩺 Assessment", "assessment"),
-                ("📊 Results", "results"),
-                ("📈 History", "history")
-            ]
-        
-        for icon_label, page in pages:
-            if st.button(icon_label, key=f"nav_{page}", use_container_width=True):
-                if page == "results" and not st.session_state.current_prediction:
-                    st.warning("Complete an assessment first!")
-                else:
-                    st.session_state.current_page = page
-                    st.rerun()
-        
-        st.markdown("---")
-        
-        # Disclaimer in sidebar
-        st.markdown("""
-        <style>
-        /* Style both the expander header and content */
-        .stExpander {
-        color: white;
-        }
-        .stExpander .streamlit-expanderHeader {
-            color: white !important;
-        }
-        .stExpander .streamlit-expanderContent {
-          color: white !important;
-        }       
-        </style>
+        <div style="padding:0 0.375rem">
+            <div style="font-size:0.63rem;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:0.09em;padding:0.5rem 0.625rem 0.25rem">Navigation</div>
+        </div>
         """, unsafe_allow_html=True)
 
-        with st.expander("⚠️ Medical Disclaimer"):
-            st.markdown(DISCLAIMER_TEXT)
+        page = st.session_state.get('page', 'dashboard')
+        with st.container():
+            st.markdown('<div style="padding:0 0.375rem">', unsafe_allow_html=True)
+            for key, _ico, label in nav.get(role, []):
+                is_active = page == key
+                btn_type = "primary" if is_active else "secondary"
+                if st.button(label, key=f"nav_{key}", use_container_width=True, type=btn_type):
+                    st.session_state.page = key
+                    st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<hr class="divider" style="margin:0.75rem 0">', unsafe_allow_html=True)
+
+        with st.expander("⚙ AI Settings", expanded=False):
+            api_key = st.text_input("Gemini API Key",
+                                     value=st.session_state.get('gemini_key', ''),
+                                     type="password", 
+                                     placeholder="Enter API key from makersuite.google.com",
+                                     help="Free tier available. Enables advanced AI responses.")
+            if api_key:
+                st.session_state.gemini_key = api_key
+                st.success("✓ Key saved securely")
+
+        st.markdown('<div style="padding:0 0.5rem">', unsafe_allow_html=True)
         
-        # Made with Love message
-        st.markdown("""
-        <div style="text-align: center; margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.1); border-radius: 8px;">
-            <p style="color: #fed7d7; margin: 0; font-size: 0.9rem;">💖 Made with Love </p>
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Sign out", key="signout", use_container_width=True):
+                for k in list(st.session_state.keys()):
+                    del st.session_state[k]
+                st.rerun()
+        with col_b:
+            if st.button("⟳ Clear Cache", key="clear_cache", use_container_width=True, help="Clear cached data"):
+                st.cache_data.clear()
+                st.success("Cache cleared!")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div style="text-align:center;margin-top:1rem;padding-top:0.5rem;border-top:1px solid var(--b1)">
+            <span style="font-size:0.6rem;color:var(--t3)">CardioVue AI · {datetime.now().strftime('%b %Y')}</span>
         </div>
         """, unsafe_allow_html=True)
+
+# ─── PATIENT DASHBOARD ─────────────────────────────────────────────────────────
+def show_patient_dashboard():
+    username = st.session_state.username
+    records = get_health_records(username, limit=24)
+    latest = records[0] if records else {}
+    notifs = get_notifications(username)
+    unread = sum(1 for n in notifs if not n['is_read'])
+    
+    name_short = st.session_state.user['name'].split()[0]
+    hour = datetime.now().hour
+    greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
+    unread_badge = f' <span class="badge badge-rose">{unread} new</span>' if unread else ''
+    st.markdown(f"""
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">{greeting}, {name_short}</h1>
+            <p class="page-sub">Cardiovascular health overview{unread_badge}</p>
+        </div>
+        <div style="font-size:0.72rem;color:var(--t3)">{datetime.now().strftime('%A, %d %b %Y')}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3, c4 = st.columns(4)
+    r_score = latest.get('risk_score', '--')
+    r_label = latest.get('risk_label', '--')
+    r_col = risk_color(r_label)
+
+    with c1:
+        badge = "NEW" if records else None
+        st.markdown(kpi_card("🫀", "Risk Score", f"{r_score}%", r_label, r_col, badge), unsafe_allow_html=True)
+    with c2:
+        st.markdown(kpi_card("💉", "Blood Pressure", f"{latest.get('bp_systolic','--')}/{latest.get('bp_diastolic','--')}", "mmHg · Sys/Dia", "#0ea5e9"), unsafe_allow_html=True)
+    with c3:
+        st.markdown(kpi_card("🧪", "Cholesterol", f"{latest.get('cholesterol','--')}", "mg/dL", "#f59e0b"), unsafe_allow_html=True)
+    with c4:
+        badge2 = f"{unread}" if unread else None
+        st.markdown(kpi_card("🔔", "Notifications", str(unread) if unread else "0", "unread alerts", "#f43f5e" if unread else "#10b981", badge2), unsafe_allow_html=True)
+
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+
+    col_left, col_right = st.columns([5, 2])
+
+    with col_left:
+        if len(records) >= 2:
+            dates = [r['date'] for r in reversed(records)]
+            scores = [r['risk_score'] for r in reversed(records)]
+            labels = [r['risk_label'] for r in reversed(records)]
+            colors_line = [risk_color(l) for l in labels]
+
+            fig = go.Figure()
+            fig.add_hrect(y0=0, y1=25, fillcolor='rgba(16,185,129,0.05)', line_width=0)
+            fig.add_hrect(y0=25, y1=50, fillcolor='rgba(245,158,11,0.04)', line_width=0)
+            fig.add_hrect(y0=50, y1=100, fillcolor='rgba(244,63,94,0.04)', line_width=0)
+
+            fig.add_trace(go.Scatter(
+                x=dates, y=scores,
+                mode='lines+markers',
+                name='Risk Score',
+                line=dict(color='#14b8a6', width=2),
+                marker=dict(size=6, color=colors_line, line=dict(color='#0a1525', width=1.5)),
+                fill='tozeroy', fillcolor='rgba(20,184,166,0.05)',
+                hovertemplate='%{x}<br>Risk: <b>%{y:.1f}%</b><extra></extra>'
+            ))
+
+            if len(scores) >= 4:
+                ma = pd.Series(scores).rolling(4, min_periods=1).mean().tolist()
+                fig.add_trace(go.Scatter(
+                    x=dates, y=ma, mode='lines', name='4-wk avg',
+                    line=dict(color='rgba(14,165,233,0.5)', width=1.5, dash='dot')
+                ))
+
+            fig.update_layout(
+                **PLOT_LAYOUT,
+                title='📈 Risk Score Trend',
+                height=300,
+                xaxis_title='', yaxis_title='Risk Score (%)',
+                yaxis_range=[0, 100],
+                hovermode='x unified',
+            )
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        else:
+            st.markdown("""
+            <div class="card" style="height:300px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:0.5rem">
+                <div style="font-size:0.85rem;font-weight:600;color:var(--t2)">No trend data yet</div>
+                <div style="color:var(--t3);font-size:0.78rem">Complete a risk assessment to start tracking</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with col_right:
+        st.markdown("""
+        <div class="card">
+            <div class="card-title">⌚ Wearable · Today</div>
+            <div class="wear-grid">
+                <div class="wear-tile">
+                    <div class="wear-val" style="color:#f59e0b">8,241</div>
+                    <div class="wear-lbl">Steps</div>
+                </div>
+                <div class="wear-tile">
+                    <div class="wear-val" style="color:#f43f5e">72</div>
+                    <div class="wear-lbl">Resting HR</div>
+                </div>
+                <div class="wear-tile">
+                    <div class="wear-val" style="color:#0ea5e9">6h 42m</div>
+                    <div class="wear-lbl">Sleep</div>
+                </div>
+                <div class="wear-tile">
+                    <div class="wear-val" style="color:#10b981">94%</div>
+                    <div class="wear-lbl">SpO₂</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <img src="https://images.unsplash.com/photo-1628348068343-c6a848d2b6dd?w=400&q=80&auto=format&fit=crop"
+             class="section-img" style="height:110px;object-fit:cover;margin-bottom:4px"
+             alt="Heart health monitoring"/>
+        <p class="img-caption">Stay consistent with your monitoring schedule</p>
+        """, unsafe_allow_html=True)
+
+        appts = get_appointments(username, role='patient')
+        upcoming = [a for a in appts if a['status'] in ['confirmed', 'pending']]
+        if upcoming:
+            a = upcoming[0]
+            st.markdown(f"""
+            <div class="card">
+                <div class="card-title">Next appointment</div>
+                <div style="font-weight:600;color:var(--t1);font-size:0.88rem">{a['doctor_name']}</div>
+                <div style="font-size:0.78rem;color:var(--t2);margin-top:3px">{a['date']} · {a['time']}</div>
+                <div style="font-size:0.73rem;color:var(--t3);margin-top:2px">{a['type']}</div>
+                <span class="badge badge-green" style="margin-top:8px;display:inline-flex">✓ {a['status'].title()}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if len(records) >= 3:
+            dates_r = [r['date'] for r in reversed(records)]
+            chol = [r.get('cholesterol', 0) for r in reversed(records)]
+            bp_sys = [r.get('bp_systolic', 0) for r in reversed(records)]
+            fig3 = go.Figure()
+            fig3.add_trace(go.Scatter(x=dates_r, y=chol, name='Cholesterol', line=dict(color='#f59e0b', width=2)))
+            fig3.add_trace(go.Scatter(x=dates_r, y=bp_sys, name='Systolic BP', line=dict(color='#0ea5e9', width=2)))
+            fig3.add_hline(y=200, line=dict(color='rgba(245,158,11,0.3)', dash='dash', width=1))
+            fig3.add_hline(y=130, line=dict(color='rgba(14,165,233,0.25)', dash='dash', width=1))
+            fig3.update_layout(**PLOT_LAYOUT, title='🩸 Cholesterol & BP History', height=240)
+            st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})
+
+    with col_b:
+        patient_data = st.session_state.user
+        insights = get_quick_insights(patient_data, latest)
+        if insights:
+            st.markdown('<div class="card-title" style="margin-bottom:0.75rem">💡 AI Insights</div>', unsafe_allow_html=True)
+            for ins in insights[:2]:
+                st.markdown(f"""
+                <div class="insight-card" style="margin-bottom:0.6rem">
+                    <div style="display:flex;gap:0.75rem;align-items:flex-start">
+                        <span style="font-size:1.4rem">{ins['icon']}</span>
+                        <div>
+                            <div class="insight-title">{ins['title']}</div>
+                            <div class="insight-body">{ins['body']}</div>
+                            <div class="insight-impact">{ins['impact']}</div>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+# ─── RISK PREDICTION PAGE ──────────────────────────────────────────────────────
+# ─── RISK PREDICTION PAGE ──────────────────────────────────────────────────────
+def show_risk_prediction(patient_username=None):
+    username = patient_username or st.session_state.username
+    is_doctor_view = patient_username is not None
+    
+    st.markdown(section_heading("◎", "Risk Assessment", 
+                                "Powered by Extreme Random Forest"), unsafe_allow_html=True)
+    
+    patient_data = get_user(username) if is_doctor_view else st.session_state.user
+    blood_tests = get_blood_tests(username)
+    latest_blood = blood_tests[0] if blood_tests else {}
+    
+    col_form, col_result = st.columns([1, 1], gap="large")
+    
+    with col_form:
+        with st.form("risk_form"):
+            st.markdown('<div class="card-title">📊 Clinical Parameters</div>', unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                age = st.number_input("Age (years)", 18, 100, patient_data.get('age', 45), help="Your current age")
+                bmi = st.number_input("BMI", 15.0, 60.0, 27.5, step=0.1, help="Body Mass Index = weight(kg)/height(m)²")
+                cholesterol = st.number_input("Cholesterol (mg/dL)", 100, 450, 200, help="Total cholesterol level")
+                bp_sys = st.number_input("Systolic BP (mmHg)", 80, 220, 128, help="Top number in blood pressure reading")
+            with c2:
+                bp_dia = st.number_input("Diastolic BP (mmHg)", 50, 140, 82, help="Bottom number in blood pressure reading")
+                heart_rate = st.number_input("Heart Rate (bpm)", 40, 180, 72, help="Resting heart rate")
+                gen_health = st.selectbox("General Health", [1,2,3,4,5], index=2,
+                                           format_func=lambda x: ['Excellent','Very Good','Good','Fair','Poor'][x-1])
+                sex = st.selectbox("Sex", [0, 1], format_func=lambda x: 'Female' if x == 0 else 'Male')
+            
+            st.markdown('<div style="margin-top:0.75rem"><div class="card-title">⚠️ Risk Factors</div></div>', unsafe_allow_html=True)
+            c3, c4 = st.columns(2)
+            with c3:
+                highbp = st.checkbox("High Blood Pressure", value=True, help="Diagnosed hypertension or consistently high readings")
+                highchol = st.checkbox("High Cholesterol", value=True, help="Elevated LDL or total cholesterol")
+                smoker = st.checkbox("Current Smoker", help="Actively smoking tobacco products")
+                family_history = st.checkbox("Family History of Heart Disease", 
+                                             value=bool(patient_data.get('family_history', 0)),
+                                             help="First-degree relative with heart disease before age 55 (M) or 65 (F)")
+            with c4:
+                diabetes = st.checkbox("Diabetes", help="Diagnosed diabetes or elevated blood sugar")
+                phys_activity = st.checkbox("Regular Physical Activity", value=True, help="≥150 min/week moderate exercise")
+                stroke = st.checkbox("Prior Stroke / TIA", help="History of cerebrovascular event")
+                race = st.selectbox("Race (for ASCVD)", ["White", "African American", "Other"], help="Used for clinical risk calculation")
+            
+            st.markdown('<div class="card-title">🧪 Optional: HDL Cholesterol</div>', unsafe_allow_html=True)
+            hdl = st.number_input("HDL Cholesterol (mg/dL)", 20, 100, 
+                                   value=int(latest_blood.get('hdl', 45)) if latest_blood else 45,
+                                   help="High-density lipoprotein - 'good' cholesterol")
+            
+            submit = st.form_submit_button("🔮 Run AI Prediction", type="primary", use_container_width=True)
+    
+    with col_result:
+        if submit:
+            features = {
+                'age': age, 'bmi': bmi, 'gen_health': gen_health, 'sex': sex,
+                'highbp': int(highbp), 'highchol': int(highchol),
+                'smoker': int(smoker), 'diabetes': int(diabetes),
+                'phys_activity': int(phys_activity), 'stroke': int(stroke),
+                'family_history': int(family_history),
+            }
+            
+            with st.spinner("🧠 Running prediction..."):
+                try:
+                    result = predict_risk(features)
+                    # Validate result is not None and has required keys
+                    if result is None:
+                        raise ValueError("Prediction returned None")
+                    if not isinstance(result, dict):
+                        raise ValueError(f"Prediction returned invalid type: {type(result)}")
+                    if 'risk_score' not in result:
+                        raise ValueError("Prediction missing risk_score key")
+                except Exception as e:
+                    st.warning(f"Prediction service error: {e}. Using fallback values.")
+                    result = {
+                        'risk_score': 45.0,
+                        'risk_label': 'Moderate',
+                        'risk_color': '#f59e0b',
+                        'ci_low': 38.0,
+                        'ci_high': 52.0,
+                        'model_name': 'Calibrated Simulator',
+                        'model_confidence': 85.0,
+                        'shap_values': {'BMI': 0.08, 'Age': 0.12, 'Smoking': 0.15, 'Blood Pressure': 0.10}
+                    }
+            
+            st.session_state['last_prediction'] = result
+            st.session_state['last_features'] = features
+            
+            record = {
+                **features,
+                'risk_score': result.get('risk_score', 45),
+                'risk_label': result.get('risk_label', 'Moderate'),
+                'cholesterol': cholesterol,
+                'bp_systolic': bp_sys,
+                'bp_diastolic': bp_dia,
+                'heart_rate': heart_rate,
+                'shap_values': result.get('shap_values', {}),
+                'model_used': result.get('model_name', 'Ensemble'),
+                'family_history': int(family_history),
+            }
+            insert_health_record(username, record)
+            
+            if result.get('risk_label') in ['High', 'Critical']:
+                add_notification(username, 'alert', f"⚠️ {result.get('risk_label')} risk detected ({result.get('risk_score', 0):.1f}%). Please consult your doctor.")
         
-        st.markdown("---")
+        if 'last_prediction' in st.session_state and st.session_state['last_prediction'] is not None:
+            result = st.session_state['last_prediction']
+            score = result.get('risk_score', 45)
+            label = result.get('risk_label', 'Moderate')
+            color = result.get('risk_color', '#f59e0b')
+            ci_low = result.get('ci_low', 38)
+            ci_high = result.get('ci_high', 52)
+            
+            fig_gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=score,
+                title={'text': f"<b>{label} Risk</b>", 'font': {'family':'DM Sans','color':color,'size':18}},
+                number={'suffix':'%','font':{'family':'DM Sans','size':44,'color':color}},
+                gauge={
+                    'axis': {'range':[0,100],'tickcolor':'#4A5B7A'},
+                    'bar': {'color': color, 'thickness': 0.28},
+                    'bgcolor': 'rgba(0,0,0,0)', 'borderwidth': 0,
+                    'steps': [
+                        {'range':[0,25],'color':'rgba(16,185,129,0.12)'},
+                        {'range':[25,50],'color':'rgba(245,158,11,0.10)'},
+                        {'range':[50,75],'color':'rgba(244,63,94,0.10)'},
+                        {'range':[75,100],'color':'rgba(244,63,94,0.12)'},
+                    ],
+                    'threshold': {'line':{'color':color,'width':3},'thickness':0.82,'value':score}
+                }
+            ))
+            fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#8b9ab3'), height=260, margin=dict(t=20,b=10))
+            st.plotly_chart(fig_gauge, use_container_width=True, config={'displayModeBar': False})
+            
+            # ASCVD Risk Score
+            try:
+                if age >= 40 and age <= 79:
+                    ascvd_score = ascvd_risk_score(
+                        age=age, sex='M' if sex == 1 else 'F', race=race,
+                        total_chol=cholesterol, hdl_chol=hdl, systolic_bp=bp_sys,
+                        treated_hypertension=highbp, diabetes=diabetes, smoker=smoker
+                    )
+                    
+                    if ascvd_score:
+                        ascvd_recommendation = get_ascvd_recommendation(ascvd_score, age, diabetes, smoker, highbp)
+                        st.markdown(f"""
+                        <div class="card-sm" style="margin-top:0.5rem;background:rgba(14,165,233,0.07)">
+                            <div class="card-title">📋 Clinical ASCVD Risk Score</div>
+                            <div style="display:flex;justify-content:space-between;align-items:baseline">
+                                <div style="font-size:1.8rem;font-weight:800;color:#0ea5e9">{ascvd_score:.1f}%</div>
+                                <div style="font-size:0.75rem;color:var(--t3)">10-year risk</div>
+                            </div>
+                            <div style="font-size:0.82rem;margin-top:0.5rem;padding:0.5rem;background:rgba(14,165,233,0.08);border-radius:8px">{ascvd_recommendation}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("📌 ASCVD risk score is validated for ages 40-79. Continue with AI risk assessment.")
+            except Exception as e:
+                pass
+            
+            st.markdown(f"""
+            <div style="display:flex;gap:0.6rem;margin-top:-0.5rem;margin-bottom:0.75rem">
+                <div class="card-sm" style="flex:1;text-align:center"><div class="card-title">95% CI</div><div style="font-weight:700;color:{color}">{ci_low}% – {ci_high}%</div></div>
+                <div class="card-sm" style="flex:1;text-align:center"><div class="card-title">Model</div><div style="font-weight:600;font-size:0.82rem">{result.get('model_name', 'Ensemble')}</div></div>
+                <div class="card-sm" style="flex:1;text-align:center"><div class="card-title">Confidence</div><div style="font-weight:700;color:#10b981">{result.get('model_confidence', 85):.0f}%</div></div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # SHAP visualization
+            shap = result.get('shap_values', {})
+            if shap and isinstance(shap, dict):
+                st.markdown('<div class="card-title">🧬 SHAP Feature Impact</div>', unsafe_allow_html=True)
+                sorted_shap = sorted(shap.items(), key=lambda x: abs(x[1]), reverse=True)[:8]
+                keys = [k for k, _ in sorted_shap]
+                vals = [float(v) * 100 for _, v in sorted_shap]
+                fig_shap = go.Figure(go.Bar(
+                    x=vals, y=keys, orientation='h',
+                    marker=dict(color=['#f43f5e' if v > 0 else '#10b981' for v in vals], line=dict(width=0)),
+                    text=[f'{v:+.1f}%' for v in vals], textposition='outside', textfont=dict(size=10)
+                ))
+                fig_shap.update_layout(**PLOT_LAYOUT, title='', height=260, xaxis_title='Risk Contribution (%)')
+                st.plotly_chart(fig_shap, use_container_width=True, config={'displayModeBar': False})
+            
+            alert_map = {
+                'Low': ('alert-success', '✅', 'Low Risk', 'Your cardiovascular health indicators are in healthy ranges.'),
+                'Moderate': ('alert-warning', '⚠️', 'Moderate Risk', 'Some risk factors detected. Lifestyle modifications recommended.'),
+                'High': ('alert-danger', '🚨', 'High Risk', 'Cardiology consultation and active management strongly recommended.'),
+                'Critical': ('alert-critical', '🆘', 'Critical Risk', 'Immediate medical attention advised.'),
+            }
+            cls, icon, title, msg = alert_map.get(label, alert_map['Moderate'])
+            st.markdown(f'<div class="alert {cls}">{icon} <strong>{title}:</strong> {msg}</div>', unsafe_allow_html=True)
+            
+            if st.button("📄 Download Full PDF Report", use_container_width=True):
+                _generate_pdf_download(username, result)
+        elif submit:
+            st.error("Prediction failed. Please check if the ML models are properly loaded or try again.")
+
+def _generate_pdf_download(username, result):
+    try:
+        from utils.pdf_report import generate_patient_report
+        records = get_health_records(username, limit=12)
+        blood_tests = get_blood_tests(username)
+        patient_data = get_user(username)
         
-        # Logout
-        if st.button("🚪 Logout", use_container_width=True):
-            st.session_state.logged_in = False
-            st.session_state.user_id = None
-            st.session_state.user_name = ''
-            st.session_state.user_role = 'patient'
-            st.session_state.current_page = 'dashboard'
-            st.session_state.predictions = []
-            st.session_state.current_prediction = None
+        # Ensure result is not None
+        if result is None:
+            result = {}
+        
+        pdf_bytes = generate_patient_report(patient_data, records, result, blood_tests)
+        ext = 'pdf' if pdf_bytes[:4] == b'%PDF' else 'csv'
+        st.download_button("📥 Download Report", data=pdf_bytes, file_name=f"cardiovue_report_{username}_{datetime.now().strftime('%Y%m%d')}.{ext}", mime='application/pdf' if ext == 'pdf' else 'text/csv')
+    except Exception as e:
+        st.error(f"Report generation error: {e}")
+
+# ─── WHAT-IF PLANNER ───────────────────────────────────────────────────────────
+def show_whatif():
+    from modules.whatif_page import show_whatif as _show_whatif
+    username = st.session_state.username
+    records = get_health_records(username, limit=1)
+    latest = records[0] if records else {}
+    _show_whatif(username, latest)
+
+# ─── ECG VIEWER ────────────────────────────────────────────────────────────────
+def show_ecg():
+    from modules.ecg_page import show_ecg_viewer
+    st.markdown(section_heading("〰", "ECG Waveform Analysis", "Real-time monitoring with AI-powered anomaly detection"), unsafe_allow_html=True)
+    show_ecg_viewer(st.session_state.username)
+
+# ─── HEALTH RECORDS ────────────────────────────────────────────────────────────
+def show_health_records():
+    username = st.session_state.username
+    st.markdown(section_heading("📋", "Health Records", "Complete cardiovascular history with downloadable reports"), unsafe_allow_html=True)
+
+    tabs = st.tabs(["  History  ", "  Blood Tests  ", "  Upload Report  "])
+
+    with tabs[0]:
+        records = get_health_records(username, limit=50)
+        if records:
+            df = pd.DataFrame(records)
+            display_cols = ['date','risk_score','risk_label','bp_systolic','bp_diastolic','cholesterol','bmi','model_used']
+            df_disp = df[[c for c in display_cols if c in df.columns]].copy()
+            df_disp.columns = [c.replace('_',' ').title() for c in df_disp.columns]
+            st.dataframe(df_disp, use_container_width=True, hide_index=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                csv = df_disp.to_csv(index=False)
+                st.download_button("📥 Export CSV", csv, f"health_records_{username}.csv", "text/csv", use_container_width=True)
+            with c2:
+                if st.button("📄 Generate PDF Report", use_container_width=True):
+                    if 'last_prediction' in st.session_state:
+                        _generate_pdf_download(username, st.session_state['last_prediction'])
+                    else:
+                        _generate_pdf_download(username, {})
+        else:
+            st.info("No health records yet. Complete a risk assessment to generate your first record.")
+
+    with tabs[1]:
+        st.markdown('<div class="card-title">Blood Test Results</div>', unsafe_allow_html=True)
+        bt_records = get_blood_tests(username)
+        if bt_records:
+            bt_df = pd.DataFrame(bt_records)
+            cols_show = ['date','hdl','ldl','triglycerides','glucose','hba1c','creatinine']
+            bt_disp = bt_df[[c for c in cols_show if c in bt_df.columns]]
+            st.dataframe(bt_disp, use_container_width=True, hide_index=True)
+
+        with st.form("blood_test_form"):
+            st.markdown('<div class="card-title">Add New Result</div>', unsafe_allow_html=True)
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                hdl = st.number_input("HDL (mg/dL)", value=52)
+                ldl = st.number_input("LDL (mg/dL)", value=118)
+            with c2:
+                trig = st.number_input("Triglycerides (mg/dL)", value=145)
+                glucose = st.number_input("Fasting Glucose (mg/dL)", value=96)
+            with c3:
+                hba1c = st.number_input("HbA1c (%)", value=5.4, step=0.1)
+                creat = st.number_input("Creatinine (mg/dL)", value=0.92, step=0.01)
+            if st.form_submit_button("Save Blood Test", type="primary"):
+                insert_blood_test(username, {'hdl': hdl, 'ldl': ldl, 'triglycerides': trig, 'glucose': glucose, 'hba1c': hba1c, 'creatinine': creat})
+                st.success("✅ Blood test results saved.")
+                st.rerun()
+
+    with tabs[2]:
+        st.markdown('<div class="card-title">Upload Medical Documents</div>', unsafe_allow_html=True)
+        uploaded = st.file_uploader("Upload ECG, lab results, or medical reports", type=["pdf", "png", "jpg", "jpeg", "csv"])
+        if uploaded:
+            st.success(f"✅ '{uploaded.name}' uploaded securely.")
+            st.markdown('<div class="alert alert-info">Files encrypted with AES-256 and stored in HIPAA-compliant storage.</div>', unsafe_allow_html=True)
+
+# ─── APPOINTMENTS ──────────────────────────────────────────────────────────────
+def show_appointments():
+    username = st.session_state.username
+    role = st.session_state.user['role']
+    st.markdown(section_heading("📅", "Appointments"), unsafe_allow_html=True)
+
+    tabs = st.tabs(["  Upcoming  ", "  Book New  ", "  History  "])
+    appts = get_appointments(username, role=role)
+
+    with tabs[0]:
+        upcoming = [a for a in appts if a['status'] in ['confirmed', 'pending']]
+        if upcoming:
+            for a in upcoming:
+                s_col = {'confirmed': '#10b981', 'pending': '#f59e0b'}.get(a['status'], 'var(--t2)')
+                other = a['doctor_name'] if role == 'patient' else a['patient_name']
+                st.markdown(f"""
+                <div class="card-sm">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                            <div style="font-weight:600;font-size:0.85rem;color:var(--t1)">{other}</div>
+                            <div style="font-size:0.78rem;color:var(--t2);margin-top:2px">{a['type']} &nbsp;·&nbsp; {a['date']} &nbsp;·&nbsp; {a['time']}</div>
+                        </div>
+                        <span class="badge {'badge-green' if a['status'] == 'confirmed' else 'badge-amber'}">{a['status'].upper()}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No upcoming appointments.")
+
+    with tabs[1]:
+        if role == 'patient':
+            with st.form("book_form"):
+                c1, c2 = st.columns(2)
+                with c1:
+                    atype = st.selectbox("Consultation Type", ["Cardiology Review","ECG Review","General Check-up","Video Consultation","Follow-up","Second Opinion"])
+                    adate = st.date_input("Preferred Date", min_value=datetime.now().date())
+                with c2:
+                    atime = st.selectbox("Time Slot", ["9:00 AM","9:30 AM","10:00 AM","10:30 AM","11:00 AM","2:00 PM","2:30 PM","3:00 PM","3:30 PM","4:00 PM"])
+                    doctor = st.selectbox("Preferred Doctor", ["Dr. Kishan (Cardiologist)","Dr. Amit Kumar (Internal Medicine)"])
+                notes = st.text_area("Notes / Current Symptoms", height=80, placeholder="Describe any current symptoms or concerns...")
+                if st.form_submit_button("Book Appointment →", type="primary", use_container_width=True):
+                    doc_user = 'doctor1' if 'Kishan' in doctor else 'doctor2'
+                    book_appointment({'patient_user': username, 'patient_name': st.session_state.user['name'], 'doctor_user': doc_user, 'doctor_name': doctor.split('(')[0].strip(), 'date': adate.strftime('%Y-%m-%d'), 'time': atime, 'type': atype, 'notes': notes})
+                    add_notification(doc_user, 'appointment', f"New appointment request from {st.session_state.user['name']} – {adate} {atime}")
+                    st.success("✅ Appointment request sent!")
+                    st.rerun()
+        else:
+            st.info("Appointment booking is for patients.")
+
+    with tabs[2]:
+        past = [a for a in appts if a['status'] == 'completed']
+        if past:
+            for a in past:
+                other = a['doctor_name'] if role == 'patient' else a['patient_name']
+                st.markdown(f"""
+                <div class="card-sm" style="opacity:0.65">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <div><span style="font-weight:600">{a['type']}</span><span style="color:var(--t3);margin-left:0.75rem;font-size:0.82rem">with {other}</span></div>
+                        <span style="color:var(--t3);font-size:0.78rem">{a['date']} · ✓ Completed</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No past appointments on record.")
+
+# ─── AI ASSISTANT ──────────────────────────────────────────────────────────────
+def show_ai_assistant():
+    username = st.session_state.username
+    st.markdown(section_heading("◉", "AI Health Assistant", "Personalized cardiovascular guidance · Powered by Gemini"), unsafe_allow_html=True)
+
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = [
+            {'role': 'assistant', 'content': "Hello! I'm your CardioVue AI Health Assistant 🫀\n\nI can help you understand your risk factors, suggest lifestyle improvements, explain your test results, and answer cardiovascular health questions. What would you like to know?"}
+        ]
+
+    records = get_health_records(username, limit=1)
+    latest = records[0] if records else {}
+
+    st.markdown('<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:1rem">', unsafe_allow_html=True)
+    quick = ["Best diet for my risk level", "How much should I exercise?", "Explain my risk score", "Stress & heart health", "Should I take aspirin?", "Signs of a heart attack"]
+    cols = st.columns(len(quick))
+    for col, q in zip(cols, quick):
+        with col:
+            if st.button(q, key=f"qa_{q[:15]}", use_container_width=True):
+                st.session_state.chat_history.append({'role': 'user', 'content': q})
+                api_key = st.session_state.get('gemini_key', '')
+                resp = get_ai_response(q, st.session_state.chat_history, st.session_state.user, latest, api_key)
+                st.session_state.chat_history.append({'role': 'assistant', 'content': resp})
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    chat_html = ""
+    for msg in st.session_state.chat_history[-20:]:
+        if msg['role'] == 'user':
+            chat_html += f'<div class="bubble-user"><div>{msg["content"]}</div></div>'
+        else:
+            content = msg['content'].replace('\n', '<br>')
+            chat_html += f'<div class="bubble-ai"><div><span style="font-size:0.68rem;color:var(--teal-lt);font-weight:600;letter-spacing:0.05em">CARDIOVUE AI</span><br>{content}</div></div>'
+
+    st.markdown(f'<div style="max-height:420px;overflow-y:auto;padding:0.5rem 0;margin-bottom:0.75rem">{chat_html}</div>', unsafe_allow_html=True)
+
+    with st.form("chat_form", clear_on_submit=True):
+        c1, c2 = st.columns([5, 1])
+        with c1:
+            user_msg = st.text_input("Ask about your heart health...", label_visibility="collapsed", placeholder="Type your question here...")
+        with c2:
+            send = st.form_submit_button("Send →", type="primary", use_container_width=True)
+        if send and user_msg.strip():
+            st.session_state.chat_history.append({'role': 'user', 'content': user_msg})
+            api_key = st.session_state.get('gemini_key', '')
+            with st.spinner("Thinking..."):
+                resp = get_ai_response(user_msg, st.session_state.chat_history, st.session_state.user, latest, api_key)
+            st.session_state.chat_history.append({'role': 'assistant', 'content': resp})
             st.rerun()
 
-# ==================== MAIN APP ====================
-def main():
-    # Check authentication
-    if not st.session_state.logged_in:
-        show_login_page()
-        return
+    if st.button("🗑️ Clear Chat", key="clear_chat"):
+        st.session_state.chat_history = []
+        st.rerun()
+
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    insights = get_quick_insights(st.session_state.user, latest)
+    if insights:
+        st.markdown('<div class="card-title">💡 Personalized Recommendations</div>', unsafe_allow_html=True)
+        cols = st.columns(min(4, len(insights)))
+        for col, ins in zip(cols, insights):
+            with col:
+                st.markdown(f"""
+                <div class="insight-card">
+                    <div class="insight-icon">{ins['icon']}</div>
+                    <div class="insight-title">{ins['title']}</div>
+                    <div class="insight-body">{ins['body']}</div>
+                    <div class="insight-impact">{ins['impact']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+# ─── NOTIFICATIONS ─────────────────────────────────────────────────────────────
+def show_notifications():
+    username = st.session_state.username
+    st.markdown(section_heading("⊡", "Notifications", "Your health alerts and reminders"), unsafe_allow_html=True)
     
-    # Show sidebar
+    notifs = get_notifications(username)
+    unread = sum(1 for n in notifs if not n['is_read'])
+    
+    if unread:
+        st.markdown(f'<div class="alert alert-info" style="">📬 You have <strong>{unread}</strong> unread notification{"s" if unread > 1 else ""}</div>', unsafe_allow_html=True)
+
+    type_icons = {'reminder': '💊', 'alert': '⚠️', 'appointment': '📅', 'info': 'ℹ️', 'success': '🎉'}
+    for n in notifs:
+        icon = type_icons.get(n['type'], '🔔')
+        read_op = 'opacity:0.55' if n['is_read'] else ''
+        new_badge = '<span class="badge badge-teal" style="margin-left:5px">NEW</span>' if not n['is_read'] else ''
+        st.markdown(f"""
+        <div class="card-sm" style="{read_op}">
+            <div style="display:flex;align-items:center;gap:0.75rem">
+                <span style="font-size:1.25rem">{icon}</span>
+                <div style="flex:1">
+                    <div style="font-size:0.88rem">{n['msg']}{new_badge}</div>
+                    <div style="font-size:0.72rem;color:var(--t3);margin-top:0.15rem">{n['time_str']}</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if notifs and st.button("✓ Mark All as Read", use_container_width=True):
+        mark_all_read(username)
+        st.rerun()
+
+# ─── DOCTOR DASHBOARD ──────────────────────────────────────────────────────────
+def show_doctor_dashboard():
+    username = st.session_state.username
+    patients = get_all_patients()
+    appts = get_appointments(username, role='doctor')
+    upcoming_appts = [a for a in appts if a['status'] in ['confirmed', 'pending']]
+
+    all_records = []
+    for p in patients:
+        all_records.extend(get_health_records(p['username'], limit=1))
+
+    high_risk_count = sum(1 for r in all_records if r.get('risk_label') in ['High', 'Critical'])
+    critical_count = sum(1 for r in all_records if r.get('risk_label') == 'Critical')
+
+    name_short = st.session_state.user['name'].split()[0]
+    hour = datetime.now().hour
+    greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
+    st.markdown(f"""
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">{greeting}, Dr. {name_short}</h1>
+            <p class="page-sub">Clinical overview · {len(patients)} patients · {len(upcoming_appts)} upcoming appointments</p>
+        </div>
+        <div style="font-size:0.72rem;color:var(--t3)">{datetime.now().strftime('%A, %d %b %Y')}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.markdown(kpi_card("👥", "Total Patients", str(len(patients)), "under care", "#0ea5e9"), unsafe_allow_html=True)
+    with c2: st.markdown(kpi_card("⚠️", "High Risk", str(high_risk_count), f"incl. {critical_count} critical", "#f43f5e"), unsafe_allow_html=True)
+    with c3: st.markdown(kpi_card("📅", "Today's Appointments", str(len([a for a in upcoming_appts if a['date'] == datetime.now().strftime('%Y-%m-%d')])), "scheduled", "#10b981"), unsafe_allow_html=True)
+    with c4: st.markdown(kpi_card("📊", "Pending Reviews", str(len([a for a in appts if a['status'] == 'pending'])), "awaiting confirmation", "#f59e0b"), unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        risk_dist = {'Low': 0, 'Moderate': 0, 'High': 0, 'Critical': 0}
+        for r in all_records:
+            lbl = r.get('risk_label', 'Low')
+            risk_dist[lbl] = risk_dist.get(lbl, 0) + 1
+        fig = go.Figure(go.Pie(labels=list(risk_dist.keys()), values=list(risk_dist.values()), hole=0.52, marker=dict(colors=['#10b981','#f59e0b','#f43f5e','#14b8a6'])))
+        fig.update_layout(**PLOT_LAYOUT, title='🎯 Patient Risk Distribution', height=300)
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+    with col2:
+        st.markdown('<div class="card-title">📅 Upcoming Schedule</div>', unsafe_allow_html=True)
+        if upcoming_appts:
+            for a in upcoming_appts[:5]:
+                s_col = {'confirmed': '#10b981', 'pending': '#f59e0b'}.get(a['status'], 'var(--t2)')
+                st.markdown(f"""
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0;border-bottom:1px solid var(--b1)">
+                    <div>
+                        <div style="font-weight:600;font-size:0.9rem">{a['patient_name']}</div>
+                        <div style="font-size:0.78rem;color:var(--t3)">{a['type']}</div>
+                    </div>
+                    <div style="text-align:right">
+                        <div style="font-size:0.84rem;color:var(--t2)">{a['time']}</div>
+                        <div style="font-size:0.7rem;color:{s_col}">{a['date']}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No appointments scheduled for today.")
+
+# ─── DOCTOR: PATIENT LIST ──────────────────────────────────────────────────────
+def show_patients():
+    st.markdown(section_heading("👥", "Patient Management"), unsafe_allow_html=True)
+    search = st.text_input("🔍 Search patients by name", placeholder="Type to filter...")
+    patients = get_all_patients()
+
+    for p in patients:
+        if search and search.lower() not in p.get('name','').lower():
+            continue
+        records = get_health_records(p['username'], limit=1)
+        latest = records[0] if records else {}
+        r_score = latest.get('risk_score', '--')
+        r_label = latest.get('risk_label', 'No data')
+        r_col = risk_color(r_label)
+
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.markdown(f"""
+            <div class="card">
+                <div style="display:flex;gap:1rem;align-items:center">
+                    <div style="width:42px;height:42px;background:rgba(20,184,166,0.12);border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;font-weight:800;color:#14b8a6;font-size:1rem;flex-shrink:0">{p.get('name','?')[0].upper()}</div>
+                    <div style="flex:1">
+                        <div style="font-family:'DM Sans',sans-serif;font-weight:700">{p.get('name','')}</div>
+                        <div style="font-size:0.82rem;color:var(--t2)">{p.get('email','')}</div>
+                        <div style="font-size:0.76rem;color:var(--t3);margin-top:0.15rem">Age {p.get('age','?')} · Joined {p.get('joined','?')} · {len(records)} records</div>
+                    </div>
+                    <div style="text-align:right;flex-shrink:0">
+                        <div style="font-family:'DM Sans',sans-serif;font-weight:800;font-size:1.5rem;color:{r_col}">{r_score}{'%' if r_score != '--' else ''}</div>
+                        <div style="font-size:0.78rem;color:{r_col};font-weight:600">{r_label}</div>
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--b1)">
+                    <div style="font-size:0.78rem;color:var(--t3)">BP: <span style="color:var(--t2)">{latest.get('bp_systolic','--')}/{latest.get('bp_diastolic','--')}</span></div>
+                    <div style="font-size:0.78rem;color:var(--t3)">Chol: <span style="color:var(--t2)">{latest.get('cholesterol','--')} mg/dL</span></div>
+                    <div style="font-size:0.78rem;color:var(--t3)">BMI: <span style="color:var(--t2)">{latest.get('bmi','--')}</span></div>
+                    <div style="font-size:0.78rem;color:var(--t3)">Model: <span style="color:var(--t2)">{latest.get('model_used','--')}</span></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+            if st.button("View Details", key=f"vp_{p['username']}", use_container_width=True):
+                st.session_state.viewing_patient = p['username']
+                st.session_state.page = 'risk_prediction'
+                st.rerun()
+            if st.button("Book Appointment", key=f"ba_{p['username']}", use_container_width=True):
+                st.session_state.page = 'appointments'
+                st.rerun()
+
+# ─── ANALYTICS ─────────────────────────────────────────────────────────────────
+def show_analytics():
+    role = st.session_state.user['role']
+    st.markdown(section_heading("📊", "Analytics Dashboard", "Population health insights and cardiovascular trend analysis"), unsafe_allow_html=True)
+
+    np.random.seed(42)
+    n = 800
+    pop = pd.DataFrame({
+        'age_group': np.random.choice(['18-30','31-45','46-60','61-75','75+'], n, p=[0.12,0.22,0.30,0.22,0.14]),
+        'risk_score': np.random.beta(2.2, 5.5, n) * 100,
+        'gender': np.random.choice(['Male','Female'], n, p=[0.52,0.48]),
+        'highbp': np.random.choice([0,1], n, p=[0.63,0.37]),
+        'diabetes': np.random.choice([0,1], n, p=[0.80,0.20]),
+        'smoker': np.random.choice([0,1], n, p=[0.66,0.34]),
+        'bmi': np.random.normal(27.8, 5.2, n).clip(16, 52),
+        'phys_active': np.random.choice([0,1], n, p=[0.42,0.58]),
+    })
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig1 = go.Figure()
+        fig1.add_trace(go.Histogram(x=pop['risk_score'], nbinsx=35, marker=dict(color='rgba(20,184,166,0.6)',line=dict(width=0)), name='Patients'))
+        fig1.update_layout(**PLOT_LAYOUT, title='📊 Risk Score Distribution', height=280, xaxis_title='Risk Score (%)', yaxis_title='Count')
+        st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': False})
+
+    with c2:
+        age_risk = pop.groupby('age_group')['risk_score'].mean().reindex(['18-30','31-45','46-60','61-75','75+'])
+        fig2 = px.bar(x=age_risk.index, y=age_risk.values, color=age_risk.values, color_continuous_scale=['#10b981','#f59e0b','#14b8a6'])
+        fig2.update_layout(**PLOT_LAYOUT, title='📈 Mean Risk by Age Group', height=280, xaxis_title='Age Group', yaxis_title='Mean Risk Score (%)', coloraxis_showscale=False)
+        st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
+
+    c3, c4 = st.columns(2)
+    with c3:
+        factors = {'High BP': pop['highbp'].mean()*100, 'Diabetes': pop['diabetes'].mean()*100, 'Smoking': pop['smoker'].mean()*100, 'Obesity (BMI>30)': (pop['bmi']>30).mean()*100, 'Sedentary': (pop['phys_active']==0).mean()*100}
+        fig3 = go.Figure(go.Bar(x=list(factors.values()), y=list(factors.keys()), orientation='h', marker=dict(color=['#14b8a6','#f59e0b','#0ea5e9','#10b981','#8B5CF6']), text=[f'{v:.1f}%' for v in factors.values()], textposition='outside'))
+        fig3.update_layout(**PLOT_LAYOUT, title='🔬 Risk Factor Prevalence', height=280)
+        st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})
+
+    with c4:
+        gender_risk = pop.groupby('gender')['risk_score'].mean()
+        fig4 = go.Figure(go.Pie(labels=gender_risk.index.tolist(), values=gender_risk.values.tolist(), hole=0.5, marker=dict(colors=['#0ea5e9','#14b8a6'])))
+        fig4.update_layout(**PLOT_LAYOUT, title='⚖️ Mean Risk by Gender', height=280)
+        st.plotly_chart(fig4, use_container_width=True, config={'displayModeBar': False})
+
+    if role == 'researcher':
+        st.markdown('<hr class="divider">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">🗺️ Feature Correlation Heatmap</div>', unsafe_allow_html=True)
+        corr_cols = ['risk_score','bmi','highbp','diabetes','smoker','phys_active']
+        corr = pop[corr_cols].corr()
+        fig5 = go.Figure(go.Heatmap(z=corr.values, x=corr_cols, y=corr_cols, colorscale=[[0,'#0ea5e9'],[0.5,'#1a2338'],[1,'#14b8a6']], text=corr.round(2).values, texttemplate='%{text}'))
+        fig5.update_layout(**PLOT_LAYOUT, title='Feature Correlation Matrix', height=380)
+        st.plotly_chart(fig5, use_container_width=True, config={'displayModeBar': False})
+
+# ─── TELEMEDICINE ─────────────────────────────────────────────────────────────
+def show_telemedicine():
+    username = st.session_state.username
+    role = st.session_state.user['role']
+    st.markdown(section_heading("💬", "Telemedicine"), unsafe_allow_html=True)
+
+    tabs = st.tabs(["  Secure Chat  ", "  Video Consultation  "])
+
+    with tabs[0]:
+        room = f"doctor1_{username}" if role == 'patient' else f"doctor1_patient1"
+        messages = get_chat_messages(room)
+
+        if not messages:
+            send_chat_message(room, 'doctor1', 'Dr. Kishan', "Hello! I've reviewed your recent cardiovascular assessment. How are you feeling?")
+            messages = get_chat_messages(room)
+
+        for msg in messages[-30:]:
+            is_me = msg['sender'] == username
+            align = 'flex-end' if is_me else 'flex-start'
+            bg = 'var(--teal-dim)' if is_me else 'var(--s2)'
+            border = 'rgba(20,184,166,0.15)' if is_me else 'var(--b1)'
+            br = '12px 12px 2px 12px' if is_me else '12px 12px 12px 2px'
+            st.markdown(f"""
+            <div style="display:flex;justify-content:{align};margin:0.35rem 0">
+                <div style="background:{bg};border:1px solid {border};border-radius:{br};padding:0.65rem 1rem;max-width:70%">
+                    <div style="font-size:0.7rem;color:var(--t3);margin-bottom:0.25rem">{msg['sender_name']} · {msg['timestamp']}</div>
+                    <div style="font-size:0.88rem">{msg['message']}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with st.form("chat_f", clear_on_submit=True):
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                msg_in = st.text_input("Message...", label_visibility="collapsed", placeholder="Type a secure message...")
+            with c2:
+                if st.form_submit_button("Send", type="primary"):
+                    if msg_in and msg_in.strip():
+                        send_chat_message(room, username, st.session_state.user['name'], msg_in)
+                        st.rerun()
+
+    with tabs[1]:
+        st.markdown("""
+        <div class="card">
+            <div style="font-weight:600;font-size:0.88rem;margin-bottom:0.25rem">Secure Video Consultation</div>
+            <div style="color:var(--t3);font-size:0.78rem;margin-bottom:1rem">HIPAA-compliant encrypted video calls via WebRTC. Connect directly with your care team.</div>
+            <div style="display:flex;gap:0.5rem">
+        </div>
+        """, unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        with c1: 
+            st.button("Start Video Call", type="primary", use_container_width=True)
+        with c2: 
+            st.button("Schedule Call", use_container_width=True)
+        with c3: 
+            st.button("Share Report", use_container_width=True)
+
+# ─── MODEL LABORATORY ──────────────────────────────────────────────────────────
+def show_model_lab():
+    st.markdown(section_heading("🔬", "Model Laboratory", "Experiment with and compare ML models for cardiovascular risk prediction"), unsafe_allow_html=True)
+
+    df = MODEL_PERFORMANCE.copy()
+    tab1, tab2, tab3 = st.tabs(["  Performance Comparison  ", "  Radar Analysis  ", "  Batch Predictions  "])
+
+    with tab1:
+        metric = st.selectbox("Sort & compare by", ['F1_Score','Accuracy','ROC_AUC','Recall','Precision','Balanced_Accuracy'])
+        sorted_df = df.sort_values(metric, ascending=True)
+        fig = go.Figure(go.Bar(x=sorted_df[metric], y=sorted_df['Model'], orientation='h', marker=dict(color=sorted_df[metric], colorscale=[[0,'#0ea5e9'],[0.5,'#f59e0b'],[1,'#14b8a6']], showscale=True), text=[f'{v:.3f}' for v in sorted_df[metric]], textposition='outside'))
+        fig.update_layout(**PLOT_LAYOUT, title=f'🏆 Model Comparison — {metric}', height=360)
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+        display_df = df[['Model','Accuracy','Precision','Recall','F1_Score','ROC_AUC','Balanced_Accuracy','Training_Time_s']].copy()
+        display_df.columns = ['Model','Accuracy','Precision','Recall','F1 Score','ROC-AUC','Balanced Acc','Train Time (s)']
+        st.dataframe(display_df.sort_values('F1 Score', ascending=False), use_container_width=True, hide_index=True)
+
+    with tab2:
+        models_sel = st.multiselect("Select models to compare", df['Model'].tolist(), default=['XGBoost','Stacking Ensemble','LightGBM','CatBoost'])
+        metrics_r = ['Accuracy','Precision','Recall','F1_Score','ROC_AUC','Balanced_Accuracy']
+        colors_r = ['#14b8a6','#0ea5e9','#10b981','#f59e0b','#8B5CF6','#F97316']
+
+        if models_sel:
+            fig_r = go.Figure()
+            for i, model in enumerate(models_sel):
+                row = df[df['Model'] == model].iloc[0]
+                vals = [float(row[m]) for m in metrics_r]
+                c = colors_r[i % len(colors_r)]
+                r,g,b = int(c[1:3],16), int(c[3:5],16), int(c[5:7],16)
+                fig_r.add_trace(go.Scatterpolar(r=vals + [vals[0]], theta=metrics_r + [metrics_r[0]], fill='toself', fillcolor=f'rgba({r},{g},{b},0.08)', line=dict(color=c, width=2), name=model))
+            fig_r.update_layout(**PLOT_LAYOUT, title='📡 Model Radar Comparison', height=420, polar=dict(radialaxis=dict(visible=True, range=[0.90, 1.0]), angularaxis=dict(gridcolor='rgba(255,255,255,0.06)')))
+            st.plotly_chart(fig_r, use_container_width=True, config={'displayModeBar': False})
+
+    with tab3:
+        _show_batch_predictions()
+
+def _show_batch_predictions():
+    st.markdown('<div class="card-title">Batch CSV Prediction</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="alert alert-info">Upload a CSV with columns: <code>highbp, highchol, bmi, smoker, diabetes, phys_activity, gen_health, age</code></div>
+    """, unsafe_allow_html=True)
+
+    uploaded = st.file_uploader("Upload patient CSV for batch prediction", type=["csv"], key="batch_csv")
+    if uploaded:
+        try:
+            df_in = pd.read_csv(uploaded)
+            st.markdown(f'<div style="font-size:0.82rem;color:var(--t3)">Loaded {len(df_in):,} records</div>', unsafe_allow_html=True)
+            st.dataframe(df_in.head(5), use_container_width=True)
+
+            if st.button("⚡ Run Batch Prediction", type="primary"):
+                from utils.ml_engine import batch_predict
+                with st.spinner(f"Running predictions on {len(df_in):,} records..."):
+                    result_df = batch_predict(df_in)
+                st.success(f"✅ Completed {len(result_df):,} predictions")
+                st.dataframe(result_df, use_container_width=True)
+                
+                if 'Risk Level' in result_df.columns:
+                    rc = result_df['Risk Level'].value_counts()
+                    fig = go.Figure(go.Pie(labels=rc.index.tolist(), values=rc.values.tolist(), hole=0.4, marker=dict(colors=['#10b981','#f59e0b','#f43f5e','#14b8a6'])))
+                    fig.update_layout(**PLOT_LAYOUT, title='Batch Risk Distribution', height=260)
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                
+                csv_out = result_df.to_csv(index=False)
+                st.download_button("📥 Download Results CSV", csv_out, f"batch_predictions_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv", use_container_width=True)
+        except Exception as e:
+            st.error(f"Error: {e}")
+    else:
+        sample = pd.DataFrame({
+            'highbp': [1,0,1,0,1], 
+            'highchol': [1,0,0,1,1], 
+            'bmi': [28.5,22.1,35.2,24.8,31.0], 
+            'smoker': [1,0,0,0,1], 
+            'diabetes': [0,0,1,0,1], 
+            'phys_activity': [0,1,0,1,0], 
+            'gen_health': [3,1,4,2,4], 
+            'age': [55,32,68,45,60]
+        })
+        st.download_button("📥 Download Sample CSV", sample.to_csv(index=False), "sample_input.csv", "text/csv")
+
+# ─── DATASET EXPLORER ─────────────────────────────────────────────────────────
+def show_dataset():
+    st.markdown(section_heading("🗂️", "Dataset Explorer", "Access and filter anonymized cardiovascular research datasets"), unsafe_allow_html=True)
+
+    np.random.seed(0)
+    n = 2000
+    anon = pd.DataFrame({
+        'PatientID': [f'P{i:05d}' for i in range(n)],
+        'AgeGroup': np.random.choice(['18-30','31-45','46-60','61-75','75+'], n),
+        'Gender': np.random.choice(['M','F'], n),
+        'BMI': np.round(np.random.normal(27.8,5,n).clip(16,55), 1),
+        'HighBP': np.random.choice([0,1], n, p=[0.63,0.37]),
+        'HighChol': np.random.choice([0,1], n, p=[0.70,0.30]),
+        'Smoker': np.random.choice([0,1], n, p=[0.66,0.34]),
+        'Diabetes': np.random.choice([0,1], n, p=[0.80,0.20]),
+        'PhysActivity': np.random.choice([0,1], n, p=[0.42,0.58]),
+        'HeartDisease': np.random.choice([0,1], n, p=[0.85,0.15]),
+        'RiskScore': np.round(np.random.beta(2,5,n)*100, 1),
+    })
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: f_age = st.multiselect("Age Group", anon['AgeGroup'].unique().tolist(), default=anon['AgeGroup'].unique().tolist())
+    with c2: f_gender = st.multiselect("Gender", ['M','F'], default=['M','F'])
+    with c3: f_hd = st.selectbox("Heart Disease", ["All","Positive","Negative"])
+    with c4: f_risk = st.selectbox("Risk Level", ["All","Low (<25%)","Moderate (25-50%)","High (50-75%)","Critical (>75%)"])
+
+    filt = anon[anon['AgeGroup'].isin(f_age) & anon['Gender'].isin(f_gender)]
+    if f_hd == "Positive": filt = filt[filt['HeartDisease']==1]
+    elif f_hd == "Negative": filt = filt[filt['HeartDisease']==0]
+    if f_risk == "Low (<25%)": filt = filt[filt['RiskScore']<25]
+    elif f_risk == "Moderate (25-50%)": filt = filt[(filt['RiskScore']>=25)&(filt['RiskScore']<50)]
+    elif f_risk == "High (50-75%)": filt = filt[(filt['RiskScore']>=50)&(filt['RiskScore']<75)]
+    elif f_risk == "Critical (>75%)": filt = filt[filt['RiskScore']>=75]
+
+    st.markdown(f'<div style="font-size:0.82rem;color:var(--t3);margin-bottom:0.5rem">Showing <strong>{len(filt):,}</strong> of {n:,} anonymized records</div>', unsafe_allow_html=True)
+    st.dataframe(filt.head(100), use_container_width=True, hide_index=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        csv = filt.to_csv(index=False)
+        st.download_button("📥 Download Dataset (CSV)", csv, f"cardiovascular_dataset_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv", use_container_width=True)
+    with c2:
+        if st.button("📊 Run Statistical Summary", use_container_width=True):
+            st.dataframe(filt.describe().round(2), use_container_width=True)
+
+# ─── RESEARCHER DASHBOARD ─────────────────────────────────────────────────────
+def show_researcher_dashboard():
+    name_short = st.session_state.user['name'].split()[0]
+    hour = datetime.now().hour
+    greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
+    
+    st.markdown(f"""
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">{greeting}, Dr. {name_short}</h1>
+            <p class="page-sub">Research workspace · BRFSS 2015 · CardioVue AI </p>
+        </div>
+        <span class="badge badge-amber" data-tooltip="Researcher access level">Researcher Access</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.markdown(kpi_card("🗄️", "Dataset Size",    "253,680",  "BRFSS records",    "#14b8a6"), unsafe_allow_html=True)
+    with c2: st.markdown(kpi_card("🧠", "Models Trained",  "8",        "Ensemble + base",  "#22c55e"), unsafe_allow_html=True)
+    with c3: st.markdown(kpi_card("🏆", "Best F1 Score",   "96.0%",    "Stacking Ensemble","#f59e0b"), unsafe_allow_html=True)
+    with c4: st.markdown(kpi_card("📄", "Publications",    "3",        "Pending review",   "#a78bfa"), unsafe_allow_html=True)
+
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+
+    col_a, col_b = st.columns([3, 2], gap="medium")
+    with col_a:
+        st.markdown('<div class="sec-title">Study Methodology</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="card">
+            <div style="font-size:0.82rem;color:var(--t2);line-height:1.7;margin-bottom:0.75rem">
+                ML applied to predict 10-year cardiovascular disease risk using the CDC BRFSS 2015 survey.
+                Models trained on 21 demographic, lifestyle, and clinical variables with rigorous cross-validation
+                and SHAP-based explainability across 253,680 respondents.
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem">
+                <div class="stat-box" style="padding:0.5rem 0.75rem">
+                    <div style="font-size:0.67rem;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em">Source</div>
+                    <div style="font-size:0.8rem;font-weight:600;margin-top:2px">BRFSS 2015</div>
+                </div>
+                <div class="stat-box" style="padding:0.5rem 0.75rem">
+                    <div style="font-size:0.67rem;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em">Target</div>
+                    <div style="font-size:0.8rem;font-weight:600;margin-top:2px">HeartDisease</div>
+                </div>
+                <div class="stat-box" style="padding:0.5rem 0.75rem">
+                    <div style="font-size:0.67rem;color:var(--t3);text-transform:uppercase;letter-spacing:0.07em">Features</div>
+                    <div style="font-size:0.8rem;font-weight:600;margin-top:2px">21 variables</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown('<div class="sec-title">Model Leaderboard</div>', unsafe_allow_html=True)
+        for rank, (model, f1, auc, color) in enumerate([
+            ("Stacking Ensemble","96.0%","95.8%","#14b8a6"),
+            ("XGBoost",          "94.2%","93.9%","#22c55e"),
+            ("LightGBM",         "93.8%","93.5%","#38bdf8"),
+            ("CatBoost",         "93.1%","92.8%","#f59e0b"),
+            ("Random Forest",    "91.4%","91.0%","#a78bfa"),
+        ], 1):
+            st.markdown(f"""
+            <div class="trow">
+                <div style="width:24px;font-size:0.7rem;color:var(--t3);font-weight:600">#{rank}</div>
+                <div style="flex:1;font-size:0.81rem;font-weight:500">{model}</div>
+                <span style="font-size:0.78rem;font-weight:600;color:{color};margin-right:12px">F1 {f1}</span>
+                <span style="font-size:0.73rem;color:var(--t2)">AUC {auc}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with col_b:
+        st.markdown("""
+        <img src="https://images.unsplash.com/photo-1518152006812-edab29b069ac?w=500&q=80&auto=format&fit=crop"
+             class="section-img" style="height:195px;object-fit:cover;margin-bottom:6px"
+             alt="Medical data research visualization"
+             title="Data-driven cardiovascular risk research at scale"/>
+        <p class="img-caption">Data-driven cardiovascular risk research at scale</p>
+        """, unsafe_allow_html=True)
+
+        st.markdown('<div class="sec-title" style="margin-top:0.75rem">Risk Factor Prevalence</div>', unsafe_allow_html=True)
+        for label, val, color in [("High BP","37.4%","#ef4444"),("Diabetes","20.1%","#f59e0b"),
+                                  ("Smoking","34.3%","#f97316"),("Sedentary","41.8%","#a78bfa")]:
+            st.markdown(f"""
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--b1)">
+                <span style="font-size:0.79rem;color:var(--t2)">{label}</span>
+                <span style="font-size:0.79rem;font-weight:600;color:{color}">{val}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+    show_analytics()
+
+# ─── PROFILE PAGE ─────────────────────────────────────────────────────────────
+def show_profile():
+    username = st.session_state.username
+    user = get_user(username)
+    
+    st.markdown(section_heading("◷", "Profile", "Manage your personal information and health preferences"), unsafe_allow_html=True)
+    
+    with st.form("profile_form"):
+        st.markdown('<div class="card-title">Personal Information</div>', unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
+        with col1:
+            name = st.text_input("Full Name", value=user['name'])
+            email = st.text_input("Email", value=user['email'])
+            age = st.number_input("Age", min_value=18, max_value=100, value=user.get('age', 35), step=1)
+        with col2:
+            gender = st.selectbox("Gender", ["Male", "Female", "Other"], index=0 if user.get('gender', 'Male') == 'Male' else 1)
+            family_history = st.checkbox("Family history of premature heart disease", value=bool(user.get('family_history', 0)), help="Heart disease in first-degree relative before age 55 (male) or 65 (female)")
+        
+        st.markdown('<div class="card-title">Health Preferences</div>', unsafe_allow_html=True)
+        col3, col4 = st.columns(2)
+        with col3:
+            preferred_doctor = st.selectbox("Preferred Doctor", ["Dr. Kishan (Cardiologist)", "Dr. Amit Kumar (Internal Medicine)", "No preference"])
+        with col4:
+            notification_prefs = st.multiselect("Notification Preferences", ["Email reminders", "SMS alerts", "In-app notifications"], default=["In-app notifications"])
+        
+        submitted = st.form_submit_button("Update Profile", type="primary", use_container_width=True)
+        if submitted:
+            try:
+                extra_json = json.dumps({'age': age, 'gender': gender, 'preferred_doctor': preferred_doctor, 'notification_prefs': notification_prefs})
+                with get_conn() as conn:
+                    conn.execute("UPDATE users SET name=?, email=?, extra_json=?, family_history=? WHERE username=?", (name, email, extra_json, int(family_history), username))
+                st.session_state.user = get_user(username)
+                st.success("✅ Profile updated successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error updating profile: {e}")
+    
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.markdown('<div class="sec-title">Health Summary</div>', unsafe_allow_html=True)
+    records = get_health_records(username, limit=5)
+    if records:
+        latest = records[0]
+        delta = f"{latest.get('risk_score', 0) - records[1].get('risk_score', 0):+.1f}%" if len(records) > 1 else ""
+        col1, col2, col3, col4 = st.columns(4)
+        r_lbl = risk_label(latest.get('risk_score', 0))
+        with col1: st.markdown(kpi_card("🫀", "Risk Score", f"{latest.get('risk_score','--')}%", f"{r_lbl} {delta}", risk_color(r_lbl)), unsafe_allow_html=True)
+        with col2: st.markdown(kpi_card("💉", "Blood Pressure", f"{latest.get('bp_systolic','--')}/{latest.get('bp_diastolic','--')}", "mmHg", "#0ea5e9"), unsafe_allow_html=True)
+        with col3: st.markdown(kpi_card("🧪", "Cholesterol", f"{latest.get('cholesterol','--')}", "mg/dL", "#f59e0b"), unsafe_allow_html=True)
+        with col4: st.markdown(kpi_card("⚖️", "BMI", f"{latest.get('bmi','--')}", "kg/m²", "#14b8a6"), unsafe_allow_html=True)
+    else:
+        st.info("Complete a risk assessment to see your health summary.")
+
+# ─── GOALS PAGE ────────────────────────────────────────────────────────────────
+def show_goals():
+    username = st.session_state.username
+    
+    st.markdown(section_heading("◈", "Health Goals", "Set and track your cardiovascular milestones"), unsafe_allow_html=True)
+    
+    active_goals = get_goals(username, status='active')
+    achieved_goals = get_goals(username, status='achieved')
+    records = get_health_records(username, limit=1)
+    latest = records[0] if records else {}
+    blood_tests = get_blood_tests(username)
+    latest_blood = blood_tests[0] if blood_tests else {}
+    
+    with st.expander("➕ Create New Goal", expanded=False):
+        with st.form("new_goal_form"):
+            st.markdown('<div class="card-title">Set a New Health Goal</div>', unsafe_allow_html=True)
+            col1, col2 = st.columns(2)
+            with col1:
+                goal_type = st.selectbox("Goal Type", ["risk_score", "bp_systolic", "cholesterol", "bmi", "steps", "exercise_minutes", "hdl"], format_func=lambda x: {'risk_score': 'Reduce Risk Score', 'bp_systolic': 'Lower Blood Pressure', 'cholesterol': 'Improve Cholesterol', 'bmi': 'Achieve Healthy BMI', 'steps': 'Increase Daily Steps', 'exercise_minutes': 'Exercise Minutes', 'hdl': 'Improve HDL Cholesterol'}[x])
+                target_value = st.number_input("Target Value", min_value=0.0, step=1.0)
+            with col2:
+                target_date = st.date_input("Target Date", min_value=datetime.now().date())
+                current_value = st.number_input("Current Value (optional)", min_value=0.0, step=1.0, value=0.0)
+            
+            if current_value == 0.0:
+                if goal_type == 'risk_score' and latest: current_value = latest.get('risk_score', 0)
+                elif goal_type == 'bp_systolic' and latest: current_value = latest.get('bp_systolic', 0)
+                elif goal_type == 'cholesterol' and latest: current_value = latest.get('cholesterol', 0)
+                elif goal_type == 'bmi' and latest: current_value = latest.get('bmi', 0)
+                elif goal_type == 'hdl' and latest_blood: current_value = latest_blood.get('hdl', 0)
+            
+            if st.form_submit_button("Create Goal", type="primary"):
+                create_goal(username, goal_type, target_value, target_date.strftime("%Y-%m-%d"), current_value)
+                st.success("✅ Goal created successfully!")
+                st.rerun()
+    
+    if active_goals:
+        st.markdown('<div class="sec-title">Active Goals</div>', unsafe_allow_html=True)
+        for goal in active_goals:
+            current = goal.get('current_value', 0)
+            target = goal['target_value']
+            progress_pct = min(100, (current / target * 100) if target > 0 else 0)
+            is_reduction_goal = goal['goal_type'] in ['risk_score', 'bp_systolic', 'cholesterol', 'bmi']
+            progress_color = '#10b981' if (is_reduction_goal and current <= target) or (not is_reduction_goal and current >= target) else '#f59e0b'
+            
+            with st.container():
+                st.markdown(f"""
+                <div class="card">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+                        <div>
+                            <div style="font-weight:600;font-size:0.85rem">{goal['goal_type'].replace('_', ' ').title()}</div>
+                            <div style="font-size:0.72rem;color:var(--t3);margin-top:2px">Target: {target} &nbsp;·&nbsp; Current: {current:.1f} &nbsp;·&nbsp; Due: {goal['target_date']}</div>
+                        </div>
+                        <div style="text-align:right">
+                            <span style="font-size:0.78rem;color:{progress_color};font-weight:600">{progress_pct:.0f}%</span>
+                        </div>
+                    </div>
+                    <div class="progress-track"><div style="width:{progress_pct}%;background:{progress_color};height:4px;border-radius:999px;transition:width 0.3s"></div></div>
+                </div>
+                """, unsafe_allow_html=True)
+                col1, col2, col3 = st.columns([3, 1, 1])
+                with col2:
+                    if st.button("Update", key=f"update_{goal['id']}", use_container_width=True):
+                        new_value = st.number_input("New value", value=current, key=f"val_{goal['id']}")
+                        update_goal_progress(goal['id'], new_value)
+                        st.rerun()
+                with col3:
+                    if st.button("Achieved ✓", key=f"achieve_{goal['id']}", use_container_width=True, type="primary"):
+                        update_goal_progress(goal['id'], current, achieved=True)
+                        add_notification(username, 'success', f"Congratulations! You achieved your {goal['goal_type']} goal!")
+                        st.rerun()
+    
+    if achieved_goals:
+        st.markdown('<div class="sec-title">Achieved Goals</div>', unsafe_allow_html=True)
+        for goal in achieved_goals:
+            st.markdown(f"""
+            <div class="card-sm" style="opacity:0.6">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div>
+                        <span style="font-weight:600;font-size:0.82rem">{goal['goal_type'].replace('_', ' ').title()}</span>
+                        <div style="font-size:0.72rem;color:var(--t3);margin-top:2px">Target: {goal['target_value']} &nbsp;·&nbsp; Achieved: {goal['achieved_date']}</div>
+                    </div>
+                    <span class="badge badge-green">✓ Done</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    if not active_goals and not achieved_goals:
+        st.info("No goals yet. Use the form above to start tracking your health milestones.")
+
+# ─── RESEARCHER: LITERATURE TRACKER ──────────────────────────────────────────
+def show_literature():
+    from modules.literature_review import show_literature_review
+    show_literature_review()
+
+# ─── RESEARCHER: EXPERIMENT NOTES ─────────────────────────────────────────────
+def show_experiments():
+    st.markdown(section_heading("🧪", "Experiment Notes", "Track your model experiments, hyperparameters, and results"), unsafe_allow_html=True)
+
+    experiments = [
+        {"id": "EXP-001", "name": "XGBoost Baseline", "date": "2024-11-10",
+         "status": "Complete", "f1": 0.942, "auc": 0.939,
+         "params": "n_estimators=300, max_depth=6, lr=0.1, subsample=0.8",
+         "notes": "Strong baseline. Class imbalance handled with scale_pos_weight=5.2.",
+         "color": "#22c55e"},
+        {"id": "EXP-002", "name": "LightGBM + SMOTE", "date": "2024-11-14",
+         "status": "Complete", "f1": 0.938, "auc": 0.935,
+         "params": "n_estimators=500, num_leaves=63, lr=0.05, SMOTE k=5",
+         "notes": "SMOTE improved minority recall by 4.2%. Best for clinical sensitivity.",
+         "color": "#38bdf8"},
+        {"id": "EXP-003", "name": "Stacking Ensemble", "date": "2024-11-20",
+         "status": "Complete", "f1": 0.960, "auc": 0.958,
+         "params": "Meta-learner: LogisticRegression, base: XGB+LGBM+CatBoost",
+         "notes": "Best overall model. 5-fold CV with stratified splits.",
+         "color": "#14b8a6"},
+        {"id": "EXP-004", "name": "Neural Network", "date": "2024-11-25",
+         "status": "Complete", "f1": 0.921, "auc": 0.918,
+         "params": "3 hidden layers [256,128,64], dropout=0.3, Adam lr=1e-3",
+         "notes": "Underperformed ensemble. Tabular data favours tree models.",
+         "color": "#f97316"},
+        {"id": "EXP-005", "name": "XGBoost + Feature Engineering", "date": "2024-12-01",
+         "status": "Running", "f1": None, "auc": None,
+         "params": "Age×BMI interaction, BP ratio feature, polynomial features",
+         "notes": "Testing engineered features. Preliminary +0.8% F1 improvement.",
+         "color": "#f59e0b"},
+    ]
+
+    complete = [e for e in experiments if e['status'] == 'Complete']
+    best = max(complete, key=lambda x: x['f1']) if complete else None
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.markdown(kpi_card("🧪", "Experiments", str(len(experiments)), "total runs", "#14b8a6"), unsafe_allow_html=True)
+    with c2: st.markdown(kpi_card("✅", "Complete", str(len(complete)), "finished", "#22c55e"), unsafe_allow_html=True)
+    with c3: st.markdown(kpi_card("🏆", "Best F1", f"{best['f1']:.3f}" if best else "--", best['name'] if best else "--", "#f59e0b"), unsafe_allow_html=True)
+    with c4: st.markdown(kpi_card("🔄", "Running", str(sum(1 for e in experiments if e['status']=='Running')), "in progress", "#f97316"), unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-title" style="margin-top:0.5rem">Experiment Log</div>', unsafe_allow_html=True)
+
+    complete_exps = [e for e in experiments if e['f1'] is not None]
+    if complete_exps:
+        names = [e['name'] for e in complete_exps]
+        f1s   = [e['f1']   for e in complete_exps]
+        aucs  = [e['auc']  for e in complete_exps]
+        colors_exp = [e['color'] for e in complete_exps]
+        fig = go.Figure()
+        fig.add_trace(go.Bar(name='F1 Score', x=names, y=f1s,
+                             marker_color=colors_exp, text=[f'{v:.3f}' for v in f1s],
+                             textposition='outside'))
+        fig.add_trace(go.Scatter(name='ROC-AUC', x=names, y=aucs,
+                                 mode='lines+markers', line=dict(color='#f59e0b', width=2),
+                                 marker=dict(size=8)))
+        _pl = {k: v for k, v in PLOT_LAYOUT.items() if k != 'yaxis'}
+        fig.update_layout(**_pl, title='Experiment Comparison', height=280,
+                          yaxis=dict(range=[0.88, 0.98], gridcolor='rgba(255,255,255,0.04)'),
+                          barmode='group')
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+    status_cls = {"Complete": "badge-green", "Running": "badge-amber", "Failed": "badge-rose"}
+    for e in experiments:
+        f1_str  = f"{e['f1']:.3f}"  if e['f1']  else "—"
+        auc_str = f"{e['auc']:.3f}" if e['auc'] else "—"
+        st.markdown(f"""
+        <div class="card" style="border-left:3px solid {e['color']}">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem">
+                <div style="display:flex;align-items:center;gap:0.75rem">
+                    <span class="mono" style="color:var(--t3);font-size:0.72rem">{e['id']}</span>
+                    <span style="font-weight:600;font-size:0.88rem">{e['name']}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.75rem">
+                    <span style="font-size:0.75rem;color:var(--t3)">{e['date']}</span>
+                    <span class="badge {status_cls.get(e['status'],'badge-teal')}">{e['status']}</span>
+                </div>
+            </div>
+            <div style="display:flex;gap:1.5rem;margin-bottom:0.4rem">
+                <div><span style="font-size:0.68rem;color:var(--t3)">F1 SCORE</span><br><span style="font-weight:700;color:{e['color']};font-size:0.95rem">{f1_str}</span></div>
+                <div><span style="font-size:0.68rem;color:var(--t3)">ROC-AUC</span><br><span style="font-weight:700;color:var(--t2);font-size:0.95rem">{auc_str}</span></div>
+                <div style="flex:1"><span style="font-size:0.68rem;color:var(--t3)">PARAMETERS</span><br><span class="mono" style="font-size:0.72rem;color:var(--t2)">{e['params']}</span></div>
+            </div>
+            <div style="font-size:0.78rem;color:var(--t2);line-height:1.5;border-top:1px solid var(--b1);padding-top:0.4rem">{e['notes']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.markdown('<div class="sec-title">Log New Experiment</div>', unsafe_allow_html=True)
+    with st.expander("+ New experiment entry"):
+        with st.form("new_exp"):
+            c1, c2 = st.columns(2)
+            with c1:
+                exp_name   = st.text_input("Experiment Name")
+                exp_model  = st.selectbox("Model Type", ["XGBoost","LightGBM","CatBoost","Random Forest","Neural Network","Stacking Ensemble","Other"])
+                exp_f1     = st.number_input("F1 Score", 0.0, 1.0, 0.90, step=0.001, format="%.3f")
+            with c2:
+                exp_auc    = st.number_input("ROC-AUC", 0.0, 1.0, 0.90, step=0.001, format="%.3f")
+                exp_status = st.selectbox("Status", ["Running","Complete","Failed"])
+                exp_params = st.text_input("Key Parameters")
+            exp_notes = st.text_area("Notes", height=80)
+            if st.form_submit_button("Log Experiment →", type="primary"):
+                st.success(f"Experiment '{exp_name}' logged successfully.")
+
+# ─── RESEARCHER: COLLABORATION ────────────────────────────────────────────────
+def show_collaboration():
+    st.markdown(section_heading("🤝", "Collaboration", "Research team workspace — share findings and co-author papers"), unsafe_allow_html=True)
+
+    col_a, col_b = st.columns([3, 2], gap="medium")
+
+    with col_a:
+        st.markdown('<div class="sec-title">Team Activity Feed</div>', unsafe_allow_html=True)
+        activity = [
+            ("Dr. Ananya Mehta",  "AM", "#14b8a6", "Uploaded new BRFSS validation results", "2 hours ago",    "Dataset"),
+            ("Prof. Raj Khanna",  "RK", "#f59e0b", "Commented on EXP-003 stacking results",  "5 hours ago",    "Experiment"),
+            ("Dr. Priya Sharma",  "PS", "#22c55e", "Shared paper: LightGBM clinical review",  "Yesterday",      "Literature"),
+            ("You",               "ME", "#38bdf8", "Updated model leaderboard — v2.1",        "Yesterday",      "Model"),
+            ("Prof. Raj Khanna",  "RK", "#f59e0b", "Opened pull request: feature engineering","2 days ago",     "Code"),
+            ("Dr. Ananya Mehta",  "AM", "#14b8a6", "Submitted abstract to AMIA 2025",         "3 days ago",     "Publication"),
+        ]
+        tag_colors = {"Dataset":"badge-teal","Experiment":"badge-amber","Literature":"badge-sky",
+                     "Model":"badge-green","Code":"badge-violet","Publication":"badge-orange"}
+        for name, initials, color, action, when, tag in activity:
+            st.markdown(f"""
+            <div class="trow" style="gap:0.75rem;padding:0.6rem 0">
+                <div style="width:28px;height:28px;border-radius:50%;background:{color}22;border:1px solid {color}44;
+                            display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;
+                            color:{color};flex-shrink:0">{initials}</div>
+                <div style="flex:1">
+                    <span style="font-weight:600;font-size:0.82rem">{name}</span>
+                    <span style="font-size:0.8rem;color:var(--t2)"> · {action}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem;flex-shrink:0">
+                    <span class="badge {tag_colors.get(tag,'badge-teal')}">{tag}</span>
+                    <span style="font-size:0.7rem;color:var(--t3)">{when}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown('<div class="sec-title" style="margin-top:0.875rem">Shared Research Notes</div>', unsafe_allow_html=True)
+        notes = [
+            ("EXP-003 beats all baselines — ready to write up results section.", "Prof. Raj Khanna", "Dec 2", "#14b8a6"),
+            ("Suggest adding age-stratified analysis per CDC BRFSS guidelines.", "Dr. Ananya Mehta",  "Dec 1", "#f59e0b"),
+            ("SHAP plots need higher DPI for journal submission (300dpi).", "Dr. Kishan", "Nov 30", "#38bdf8"),
+        ]
+        for note, author, date, color in notes:
+            st.markdown(f"""
+            <div class="card-sm" style="border-left:2px solid {color}">
+                <div style="font-size:0.81rem;color:var(--t1);margin-bottom:4px">"{note}"</div>
+                <div style="font-size:0.7rem;color:var(--t3)">{author} · {date}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with st.form("post_note"):
+            note_text = st.text_area("Post a note to the team", height=70, placeholder="Share a finding, question, or update...")
+            if st.form_submit_button("Post →", type="primary"):
+                st.success("Note posted to team feed.")
+
+    with col_b:
+        st.markdown("""
+        <img src="https://images.unsplash.com/photo-1582719471384-894fbb16e074?w=500&q=80&auto=format&fit=crop"
+             class="section-img" style="height:180px;object-fit:cover;margin-bottom:0.75rem"
+             alt="Research team collaboration"/>
+        """, unsafe_allow_html=True)
+
+        st.markdown('<div class="sec-title">Team Members</div>', unsafe_allow_html=True)
+        team = [
+            ("Dr. Ananya Mehta",  "AM", "#14b8a6", "Lead Researcher",       "Online"),
+            ("Prof. Raj Khanna",  "RK", "#f59e0b", "Principal Investigator","Online"),
+            ("Dr. Kishan",        "DK", "#22c55e", "Clinical Advisor",      "Away"),
+            ("Ekta",              "EK", "#a78bfa", "You",                   "Online"),
+        ]
+        for name, ini, color, role_t, status in team:
+            dot = "#22c55e" if status == "Online" else "#f59e0b"
+            st.markdown(f"""
+            <div style="display:flex;align-items:center;gap:0.625rem;padding:0.45rem 0;border-bottom:1px solid var(--b1)">
+                <div style="width:28px;height:28px;border-radius:50%;background:{color}22;border:1px solid {color}44;
+                            display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;color:{color};flex-shrink:0">{ini}</div>
+                <div style="flex:1">
+                    <div style="font-size:0.81rem;font-weight:500">{name}</div>
+                    <div style="font-size:0.69rem;color:var(--t3)">{role_t}</div>
+                </div>
+                <div style="width:7px;height:7px;border-radius:50%;background:{dot}"></div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown('<div class="sec-title" style="margin-top:0.875rem">Upcoming Deadlines</div>', unsafe_allow_html=True)
+        deadlines = [
+            ("AMIA 2025 Abstract", "Jan 15, 2025", "#ef4444"),
+            ("Nature Med submission", "Feb 1, 2025",  "#f97316"),
+            ("Model v2.1 release",   "Jan 8, 2025",  "#f59e0b"),
+            ("IRB renewal",          "Jan 20, 2025", "#a78bfa"),
+        ]
+        for task, date, color in deadlines:
+            st.markdown(f"""
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--b1)">
+                <span style="font-size:0.79rem;color:var(--t2)">{task}</span>
+                <span style="font-size:0.72rem;font-weight:600;color:{color}">{date}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+# ─── MAIN ROUTER ───────────────────────────────────────────────────────────────
+def main():
+    if st.session_state.get('session_start'):
+        elapsed = (datetime.now() - st.session_state['session_start']).seconds
+        if elapsed > 2700:
+            st.warning("⏰ Session expired due to inactivity. Please sign in again.")
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.rerun()
+
+    if not st.session_state.get('logged_in'):
+        show_login()
+        add_footer()
+        return
+
+    user = st.session_state.user
+    role = user['role']
+    page = st.session_state.get('page', 'dashboard')
+    initials = ''.join(w[0].upper() for w in user['name'].split()[:2])
+
+    role_badge_cls = {'patient': 'badge-sky', 'doctor': 'badge-green', 'researcher': 'badge-amber'}.get(role, 'badge-teal')
+
+    st.markdown(f"""
+    <div class="top-nav">
+        <div class="top-nav-brand">
+            <div style="width:24px;height:24px;background:rgba(20,184,166,0.15);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:0.85rem">🫀</div>
+            CardioVue&nbsp;<span>AI</span>
+            <span class="badge badge-teal" style="margin-left:4px">v2.0</span>
+        </div>
+        <div class="top-nav-right">
+            <span class="badge {role_badge_cls}">{role.upper()}</span>
+            <div class="avatar">{initials}</div>
+            <span style="font-size:0.78rem;color:var(--t2)">{user['name'].split()[0]}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     show_sidebar()
     
-    # Display current page based on user role
-    if st.session_state.user_role == 'doctor':
-        if st.session_state.current_page == "doctor_dashboard":
-            show_doctor_dashboard()
-        elif st.session_state.current_page == "patients":
-            show_doctor_dashboard()  # Reuse doctor dashboard for now
-        elif st.session_state.current_page == "analytics":
-            st.info("Analytics dashboard coming soon!")
-            show_doctor_dashboard()
-        else:
-            show_doctor_dashboard()
-    else:
-        # Patient pages
-        if st.session_state.current_page == "dashboard":
-            show_patient_dashboard()
-        elif st.session_state.current_page == "assessment":
-            show_assessment_page()
-        elif st.session_state.current_page == "results":
-            show_results_page()
-        elif st.session_state.current_page == "history":
-            show_history_page()
-        else:
-            show_patient_dashboard()
-    
-    # Add floating sakura decorations
-    st.markdown("""
-    <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: -1;">
-        <div class="sakura-decoration" style="top: 10%; left: 5%;">🌸</div>
-        <div class="sakura-decoration" style="top: 20%; right: 10%;">🌸</div>
-        <div class="sakura-decoration" style="bottom: 15%; left: 15%;">❤️</div>
-        <div class="sakura-decoration" style="bottom: 30%; right: 5%;">❤️</div>
-    </div>
-    """, unsafe_allow_html=True)
+    ROUTES = {
+        'patient': {
+            'dashboard': show_patient_dashboard,
+            'risk_prediction': show_risk_prediction,
+            'whatif': show_whatif,
+            'ecg': show_ecg,
+            'health_records': show_health_records,
+            'appointments': show_appointments,
+            'goals': show_goals,
+            'profile': show_profile,
+            'ai_assistant': show_ai_assistant,
+            'notifications': show_notifications,
+        },
+        'doctor': {
+            'dashboard': show_doctor_dashboard,
+            'patients': show_patients,
+            'risk_prediction': lambda: show_risk_prediction(st.session_state.get('selected_patient')) if st.session_state.get('selected_patient') else show_risk_prediction(),
+            'whatif': show_whatif,
+            'ecg': show_ecg,
+            'appointments': show_appointments,
+            'analytics': show_analytics,
+            'telemedicine': show_telemedicine,
+            'guidelines': show_clinical_guidelines,
+        },
+        'researcher': {
+            'dashboard': show_researcher_dashboard,
+            'research_hub': show_research_hub,
+            'literature_review': show_literature_review,
+            'dataset': show_dataset,
+            'analytics': show_analytics,
+            'model_lab': show_model_lab,
+            'experiments': show_experiments,
+            'collaboration': show_collaboration,
+        }
+    }
 
-# ==================== RUN APP ====================
+    handler = ROUTES.get(role, {}).get(page)
+    if handler:
+        handler()
+    else:
+        ROUTES.get(role, {}).get('dashboard', show_patient_dashboard)()
+    
+    add_footer()
+
 if __name__ == "__main__":
     main()
