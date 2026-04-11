@@ -252,6 +252,11 @@ def show_login():
 
 # ─── SIDEBAR ───────────────────────────────────────────────────────────────────
 def show_sidebar():
+    from utils.ml_engine import render_model_download_ui
+
+# In your sidebar or settings page:
+    with st.sidebar:
+        render_model_download_ui()
     user = st.session_state.user
     role = user['role']
     nav = {
